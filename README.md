@@ -15,6 +15,7 @@ A comprehensive Python-based toolkit for scraping business information from Goog
   - [Scraping Google Maps](#1-scraping-google-maps)
   - [Scraping Contact Details](#2-scraping-contact-details)
   - [Generating Emails](#3-generating-emails)
+  - [Sending Emails](#4-sending-emails)
 - [Project Components](#-project-components)
 - [Output Examples](#-output-examples)
 - [Configuration](#-configuration)
@@ -48,6 +49,15 @@ A comprehensive Python-based toolkit for scraping business information from Goog
 - Batch email generation with summary reports
 - Professional HTML formatting for direct copy-paste into Gmail
 
+### 📤 Automated Email Sender
+- Send generated emails automatically via SMTP
+- Personalized subject lines for each business
+- Intelligent email validation and filtering
+- Dry run mode for testing
+- Rate limiting and delay configuration
+- Detailed sending logs and statistics
+- Support for Gmail, Google Workspace, and other providers
+
 ### 🛠️ Additional Tools
 - CSV to HTML table converter
 - HTML to PDF converter
@@ -73,6 +83,9 @@ python contact_scraper.py google_maps_results_*.csv
 
 # 5. Generate personalized emails
 python generate_emails.py
+
+# 6. Send emails automatically
+python send_emails.py
 ```
 
 📖 **See [QUICK_START.md](QUICK_START.md) for detailed step-by-step instructions!**
@@ -222,6 +235,57 @@ Edit `email_template.html` to change:
 - Colors and branding
 - Footer information
 
+### 4. Sending Emails
+
+Automatically send generated emails via SMTP:
+
+```bash
+# Run the email sender (interactive mode)
+python send_emails.py
+
+# The script will guide you through:
+# 1. Select mode (dry run, send all, or limited batch)
+# 2. Configure delay between emails
+# 3. Optional skip list
+# 4. Enter email password (use App Password for Gmail)
+```
+
+#### Sending Modes
+
+**1. Dry Run (Preview)**
+- Preview emails without sending
+- See recipients and subject lines
+- Test your configuration
+
+**2. Send All Emails**
+- Send all valid emails in `generated_emails/`
+- Automatically filters invalid addresses
+- Creates detailed log file
+
+**3. Send Limited Batch (Test)**
+- Send a specified number of emails
+- Perfect for testing
+- Example: Send first 5 emails
+
+#### Features
+- **Personalized Subject Lines**: Each business gets a unique subject
+- **Email Validation**: Filters out invalid/placeholder emails
+- **Rate Limiting**: Configurable delay between sends
+- **Sending Logs**: Detailed logs of all sent emails
+- **Error Handling**: Graceful handling of failures
+- **SMTP Auto-Detection**: Works with Gmail, Google Workspace, Outlook, etc.
+
+#### Gmail/Google Workspace Setup
+
+**Important**: Use an App Password, not your regular password!
+
+1. Enable 2-Factor Authentication
+2. Visit: https://myaccount.google.com/apppasswords
+3. Generate an App Password
+4. Use this password when prompted by the script
+
+**See [EMAIL_SENDER_README.md](EMAIL_SENDER_README.md) for complete documentation!**
+
 ## 🗂️ Project Components
 
 ```
@@ -229,6 +293,7 @@ Google-Scraper/
 ├── 📄 google_maps_scraper.py      # Main Google Maps scraper
 ├── 📄 contact_scraper.py          # Website contact scraper
 ├── 📄 generate_emails.py          # Email generator
+├── 📄 send_emails.py              # Automated email sender
 ├── 📄 email_template.html         # HTML email template
 ├── 📄 email_config.py             # Email configuration
 ├── 📄 csv_to_table.py             # CSV to HTML converter
@@ -237,6 +302,7 @@ Google-Scraper/
 ├── 📄 README.md                   # This file
 ├── 📄 QUICK_START.md              # Quick start guide
 ├── 📄 EMAIL_GENERATOR_README.md   # Email generator docs
+├── 📄 EMAIL_SENDER_README.md      # Email sender docs
 ├── 📄 PRICING_BREAKDOWN.md        # Pricing structure
 ├── 📄 EXCLUSIVE_OFFERS_GUIDE.md   # Offers documentation
 ├── 📄 LINK_STRUCTURE.md           # Link architecture
@@ -305,6 +371,7 @@ page_load_timeout = 30  # Seconds to wait for page load
 
 - **[QUICK_START.md](QUICK_START.md)** - Get started in 5 minutes
 - **[EMAIL_GENERATOR_README.md](EMAIL_GENERATOR_README.md)** - Detailed email generator guide
+- **[EMAIL_SENDER_README.md](EMAIL_SENDER_README.md)** - Automated email sending guide
 - **[PRICING_BREAKDOWN.md](PRICING_BREAKDOWN.md)** - Service pricing structure
 - **[EXCLUSIVE_OFFERS_GUIDE.md](EXCLUSIVE_OFFERS_GUIDE.md)** - Special offers documentation
 - **[LINK_STRUCTURE.md](LINK_STRUCTURE.md)** - URL and link architecture

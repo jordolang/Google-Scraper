@@ -60,6 +60,7 @@ chromedriver.exe
 
 # Logs
 *.log
+email_send_log_*.txt
 
 # Testing
 .pytest_cache/
