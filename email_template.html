@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Transform Your Business Online - Jlang.dev</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background-color: #f4f4f4;
+        }
+        .email-container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffffff;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #ffffff;
+            padding: 40px 30px;
+            text-align: center;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 28px;
+            font-weight: 700;
+        }
+        .header p {
+            margin: 10px 0 0 0;
+            font-size: 16px;
+            opacity: 0.95;
+        }
+        .content {
+            padding: 40px 30px;
+        }
+        .greeting {
+            font-size: 18px;
+            color: #333333;
+            margin-bottom: 20px;
+        }
+        .greeting strong {
+            color: #667eea;
+        }
+        .intro {
+            font-size: 16px;
+            line-height: 1.6;
+            color: #555555;
+            margin-bottom: 30px;
+        }
+        .cta-box {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: #ffffff;
+            padding: 30px;
+            border-radius: 12px;
+            text-align: center;
+            margin: 30px 0;
+        }
+        .cta-box h2 {
+            margin: 0 0 15px 0;
+            font-size: 24px;
+        }
+        .cta-box p {
+            margin: 0 0 20px 0;
+            font-size: 16px;
+            opacity: 0.95;
+        }
+        .cta-button {
+            display: inline-block;
+            background-color: #ffffff;
+            color: #f5576c;
+            padding: 15px 40px;
+            text-decoration: none;
+            border-radius: 30px;
+            font-weight: 700;
+            font-size: 16px;
+            transition: transform 0.2s;
+        }
+        .packages {
+            margin: 30px 0;
+        }
+        .package-card {
+            border: 2px solid #e0e0e0;
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 20px;
+            transition: all 0.3s;
+        }
+        .package-card:hover {
+            border-color: #667eea;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+        }
+        .package-card.featured {
+            border-color: #667eea;
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%);
+            position: relative;
+        }
+        .badge {
+            position: absolute;
+            top: -12px;
+            right: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #ffffff;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+        .package-card h3 {
+            margin: 0 0 10px 0;
+            font-size: 22px;
+            color: #333333;
+        }
+        .price {
+            font-size: 32px;
+            font-weight: 700;
+            color: #667eea;
+            margin: 10px 0;
+        }
+        .price-note {
+            font-size: 14px;
+            color: #888888;
+            margin-bottom: 20px;
+        }
+        .features {
+            list-style: none;
+            padding: 0;
+            margin: 20px 0;
+        }
+        .features li {
+            padding: 8px 0 8px 30px;
+            position: relative;
+            color: #555555;
+            font-size: 15px;
+            line-height: 1.5;
+        }
+        .features li:before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: #667eea;
+            font-weight: 700;
+            font-size: 18px;
+        }
+        .why-choose {
+            background-color: #f9f9f9;
+            padding: 30px;
+            border-radius: 12px;
+            margin: 30px 0;
+        }
+        .why-choose h2 {
+            margin: 0 0 20px 0;
+            font-size: 24px;
+            color: #333333;
+        }
+        .benefit {
+            margin-bottom: 20px;
+        }
+        .benefit h4 {
+            margin: 0 0 8px 0;
+            font-size: 16px;
+            color: #667eea;
+        }
+        .benefit p {
+            margin: 0;
+            font-size: 14px;
+            color: #666666;
+            line-height: 1.5;
+        }
+        .business-info {
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border-left: 4px solid #667eea;
+        }
+        .business-info p {
+            margin: 5px 0;
+            font-size: 14px;
+            color: #555555;
+        }
+        .business-info strong {
+            color: #333333;
+        }
+        .exclusive-offer {
+            background: linear-gradient(135deg, #ffd89b 0%, #19547b 100%);
+            color: #ffffff;
+            padding: 30px;
+            border-radius: 12px;
+            margin: 30px 0;
+            text-align: center;
+            border: 3px solid #f39c12;
+            box-shadow: 0 6px 20px rgba(243, 156, 18, 0.3);
+        }
+        .exclusive-offer h3 {
+            margin: 0 0 15px 0;
+            font-size: 26px;
+            font-weight: 700;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+        }
+        .exclusive-offer .discount-badge {
+            display: inline-block;
+            background-color: #e74c3c;
+            color: #ffffff;
+            padding: 8px 20px;
+            border-radius: 25px;
+            font-size: 18px;
+            font-weight: 700;
+            margin: 10px 0;
+        }
+        .exclusive-offer p {
+            margin: 10px 0;
+            font-size: 16px;
+            line-height: 1.6;
+        }
+        .exclusive-offer .original-price {
+            text-decoration: line-through;
+            opacity: 0.8;
+            font-size: 20px;
+        }
+        .exclusive-offer .special-price {
+            font-size: 42px;
+            font-weight: 700;
+            margin: 15px 0;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        .attribution-offer {
+            background-color: #e8f5e9;
+            border: 2px solid #4caf50;
+            border-radius: 12px;
+            padding: 25px;
+            margin: 20px 0;
+        }
+        .attribution-offer h4 {
+            color: #2e7d32;
+            margin: 0 0 15px 0;
+            font-size: 20px;
+        }
+        .attribution-offer p {
+            color: #1b5e20;
+            margin: 10px 0;
+            font-size: 15px;
+            line-height: 1.6;
+        }
+        .attribution-offer .savings {
+            background-color: #4caf50;
+            color: #ffffff;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-weight: 700;
+            display: inline-block;
+            margin: 10px 0;
+        }
+        .attribution-offer ul {
+            list-style: none;
+            padding: 0;
+            margin: 15px 0;
+        }
+        .attribution-offer ul li {
+            padding: 5px 0 5px 25px;
+            position: relative;
+            color: #1b5e20;
+            font-size: 14px;
+        }
+        .attribution-offer ul li:before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: #4caf50;
+            font-weight: 700;
+        }
+        .footer {
+            background-color: #2d3748;
+            color: #ffffff;
+            padding: 30px;
+            text-align: center;
+        }
+        .footer p {
+            margin: 5px 0;
+            font-size: 14px;
+            opacity: 0.9;
+        }
+        .footer a {
+            color: #667eea;
+            text-decoration: none;
+        }
+        .social-links {
+            margin: 20px 0;
+        }
+        .social-links a {
+            display: inline-block;
+            margin: 0 10px;
+            color: #ffffff;
+            text-decoration: none;
+            font-size: 14px;
+        }
+        @media only screen and (max-width: 600px) {
+            .header h1 {
+                font-size: 24px;
+            }
+            .content {
+                padding: 30px 20px;
+            }
+            .package-card {
+                padding: 20px;
+            }
+            .price {
+                font-size: 28px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="email-container">
+        <!-- Header -->
+        <div class="header">
+            <h1>🚀 Jlang.dev</h1>
+            <p>Custom Web Solutions for Growing Businesses</p>
+        </div>
+
+        <!-- Content -->
+        <div class="content">
+            <div class="greeting">
+                Hello <strong>{{BUSINESS_NAME}}</strong>!
+            </div>
+
+            <div class="intro">
+                <p>I hope this email finds you well. My name is Jordan Lang, and I'm a full-stack developer specializing in creating custom websites that help local businesses like yours thrive online.</p>
+                
+                <p>I noticed that <strong>{{BUSINESS_NAME}}</strong> provides excellent {{CATEGORY}} services in the {{LOCATION}} area. In today's digital world, having a strong online presence isn't just nice to have—it's essential for growth.</p>
+            </div>
+
+            {{CURRENT_WEBSITE_NOTE}}
+
+            <!-- CTA Box -->
+            <div class="cta-box">
+                <h2>🎯 Ready to Transform Your Online Presence?</h2>
+                <p>Let's discuss how a custom website can attract more customers and grow your business</p>
+                <a href="https://jlang.dev/promo" class="cta-button">Claim Your Exclusive Discount</a>
+            </div>
+
+            <!-- Exclusive Email Recipient Discount -->
+            <div class="exclusive-offer">
+                <h3>🎉 EXCLUSIVE EMAIL RECIPIENT OFFER! 🎉</h3>
+                <div class="discount-badge">SAVE $99 INSTANTLY</div>
+                <p><strong>As a valued recipient of this email, you qualify for an exclusive discount!</strong></p>
+                <p class="original-price">Regular Price: $499</p>
+                <p class="special-price">Your Price: $400</p>
+                <p style="font-size: 18px; margin-top: 20px;"><strong>That's right — get the complete Launchpad Package for only $400!</strong></p>
+                <p style="font-size: 14px; opacity: 0.95; margin-top: 15px;">This exclusive $99 discount is only available to email recipients and is not advertised anywhere else. Simply mention this email when you get in touch!</p>
+            </div>
+
+            <!-- Optional Attribution Savings -->
+            <div class="attribution-offer">
+                <h4>💰 BONUS: Save an Additional $50!</h4>
+                <p><strong>Want to save even more?</strong> Get the Launchpad Package for just <strong>$350</strong> by choosing our Attribution Option.</p>
+                <div class="savings">Total Savings: $149 off regular price!</div>
+                <p style="margin-top: 15px;"><strong>What's the Attribution Option?</strong></p>
+                <p>Simply allow Jlang.dev to include professional attribution on your finished website. This includes:</p>
+                <ul>
+                    <li>A tasteful "Developed by Jlang.dev" reference in the footer</li>
+                    <li>A dedicated "About the Developer" page showcasing the partnership</li>
+                    <li>Professional branding elements throughout the site</li>
+                    <li>No impact on your pricing, promotions, or business copy</li>
+                </ul>
+                <p style="margin-top: 15px; font-weight: 600;">This is a win-win: you save $50, and we get to showcase our work to help your customers find quality web development services!</p>
+            </div>
+
+            <!-- Packages Section -->
+            <div class="packages">
+                <h2 style="text-align: center; color: #333333; margin-bottom: 30px;">Choose Your Perfect Package</h2>
+
+                <!-- Launchpad Package -->
+                <div class="package-card" style="border-color: #f39c12; position: relative;">
+                    <span class="badge" style="background: linear-gradient(135deg, #f39c12 0%, #e74c3c 100%);">Email Exclusive - $99 OFF</span>
+                    <h3>⚡ Launchpad Package</h3>
+                    <div class="price" style="text-decoration: line-through; font-size: 20px; color: #888888;">$499</div>
+                    <div class="price" style="color: #e74c3c;">$400</div>
+                    <div class="price-note">Launch your online presence in 24 hours</div>
+                    <div style="background-color: #fff3cd; padding: 10px; border-radius: 6px; margin: 10px 0; font-size: 14px; color: #856404;">
+                        <strong>🎁 BONUS:</strong> Choose Attribution Option for just $350 (save $149 total!)
+                    </div>
+                    <ul class="features">
+                        <li>Single-page responsive website</li>
+                        <li>Mobile-first design optimized for all devices</li>
+                        <li>Next-day turnaround (24-hour deployment)</li>
+                        <li>Secure contact form integration</li>
+                        <li>Full social media integration</li>
+                        <li>Basic SEO optimization</li>
+                        <li>Google Analytics setup</li>
+                        <li>1-year domain registration included</li>
+                        <li>Free lifetime web hosting</li>
+                        <li>1 month post-launch support</li>
+                    </ul>
+                </div>
+
+                <!-- Professional Package (Featured) -->
+                <div class="package-card featured">
+                    <span class="badge">Most Popular</span>
+                    <h3>💼 Professional Package</h3>
+                    <div class="price">Starting at $1,499+</div>
+                    <div class="price-note">Scalable solution for growing businesses</div>
+                    <ul class="features">
+                        <li>5 to 25-page custom website</li>
+                        <li>Custom design & professional branding</li>
+                        <li>Blog/CMS integration (custom admin +$1,000)</li>
+                        <li>Comprehensive SEO & performance optimization</li>
+                        <li>Google My Business & Facebook setup</li>
+                        <li>Small business social media campaigns</li>
+                        <li>Advanced analytics & tracking</li>
+                        <li>Email marketing platform integration</li>
+                        <li>Optional basic e-commerce & Stripe integration</li>
+                        <li>AI chatbot widget for customer support</li>
+                        <li>Custom business forms & PDFs</li>
+                        <li>Lead management & financial system integration</li>
+                        <li>Third-party app support & basic AI integration</li>
+                        <li>6 months post-launch support</li>
+                    </ul>
+                </div>
+
+                <!-- Enterprise Package -->
+                <div class="package-card">
+                    <h3>🚀 Enterprise Package</h3>
+                    <div class="price">Custom Pricing</div>
+                    <div class="price-note">Ultimate solution for high-growth businesses</div>
+                    <ul class="features">
+                        <li>Unlimited pages with bespoke development</li>
+                        <li>Cloud hosting on dedicated servers</li>
+                        <li>Custom features, APIs & integrations</li>
+                        <li>Advanced e-commerce with unlimited products</li>
+                        <li>Automated ordering & inventory systems</li>
+                        <li>Multiple payment processors (Stripe, Square, PayPal)</li>
+                        <li>SSO/OAuth & enhanced security (SSL, encryption)</li>
+                        <li>24/7 uptime monitoring & management</li>
+                        <li>Automated backups (50GB offsite storage)</li>
+                        <li>3-month pre-launch marketing campaign</li>
+                        <li>Full branding & promotional materials</li>
+                        <li>Reputation management & Google My Business</li>
+                        <li>Up to 100+ custom email accounts</li>
+                        <li>Dedicated account manager</li>
+                        <li>1-year priority support</li>
+                        <li>Multi-language support</li>
+                        <li>Comprehensive training & documentation</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Why Choose Section -->
+            <div class="why-choose">
+                <h2>Why Choose Jlang.dev?</h2>
+                
+                <div class="benefit">
+                    <h4>🎨 Custom Design Tailored to Your Brand</h4>
+                    <p>No templates. Every website is designed from scratch to reflect your unique business identity and connect with your target audience.</p>
+                </div>
+
+                <div class="benefit">
+                    <h4>⚡ Lightning-Fast Performance</h4>
+                    <p>Speed matters. I build websites optimized for performance, ensuring fast load times that keep visitors engaged and improve your search rankings.</p>
+                </div>
+
+                <div class="benefit">
+                    <h4>📱 Mobile-First Approach</h4>
+                    <p>With over 60% of web traffic coming from mobile devices, your site will look stunning and function flawlessly on any screen size.</p>
+                </div>
+
+                <div class="benefit">
+                    <h4>🔍 Built-In SEO & Marketing</h4>
+                    <p>Get found on Google. Every website includes comprehensive SEO optimization and optional marketing integrations to drive more customers to your business.</p>
+                </div>
+
+                <div class="benefit">
+                    <h4>🤝 Ongoing Support</h4>
+                    <p>Your success is my priority. All packages include post-launch support to ensure your website continues to perform at its best.</p>
+                </div>
+            </div>
+
+            <!-- Business-Specific Info -->
+            <div class="business-info">
+                <p><strong>📍 Your Business:</strong> {{BUSINESS_NAME}}</p>
+                <p><strong>🏢 Category:</strong> {{CATEGORY}}</p>
+                <p><strong>📌 Location:</strong> {{ADDRESS}}</p>
+                {{RATING_INFO}}
+                {{CONTACT_INFO}}
+            </div>
+
+            <!-- Final CTA -->
+            <div style="text-align: center; margin: 40px 0;">
+                <h3 style="color: #333333; margin-bottom: 20px;">Ready to Get Started?</h3>
+                <p style="color: #666666; margin-bottom: 25px;">Let's schedule a free 30-minute consultation to discuss your goals and how we can help you achieve them.</p>
+                <a href="https://jlang.dev/promo" class="cta-button">Start Your Project Now</a>
+            </div>
+
+            <div style="text-align: center; margin: 30px 0; padding: 20px; background-color: #f9f9f9; border-radius: 8px;">
+                <p style="color: #555555; margin: 0; font-size: 14px;">
+                    <strong>Questions?</strong> Reply to this email or visit <a href="https://jlang.dev" style="color: #667eea; text-decoration: none;">jlang.dev</a> to learn more.
+                </p>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="footer">
+            <p><strong>Jlang.dev</strong></p>
+            <p>Custom Web Development & Digital Solutions</p>
+            <p style="margin-top: 15px;">
+                <a href="https://jlang.dev">Website</a> • 
+                <a href="mailto:{{FROM_EMAIL}}">{{FROM_EMAIL}}</a>
+            </p>
+            <p style="margin-top: 20px; font-size: 12px; opacity: 0.7;">
+                You're receiving this email because I believe your business could benefit from a professional web presence.<br>
+                If you'd prefer not to receive future emails, please reply with "unsubscribe".
+            </p>
+        </div>
+    </div>
+</body>
+</html>
