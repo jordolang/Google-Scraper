@@ -11,11 +11,19 @@ A comprehensive Python-based toolkit for scraping business information from Goog
 - [Features](#-features)
 - [Quick Start](#-quick-start)
 - [Installation](#-installation)
-- [Usage](#-usage)
+- [Usage — Business Pipeline](#-usage)
   - [Scraping Google Maps](#1-scraping-google-maps)
   - [Scraping Contact Details](#2-scraping-contact-details)
   - [Generating Emails](#3-generating-emails)
   - [Sending Emails](#4-sending-emails)
+- [School Fundraiser Pipeline](#-school-fundraiser-pipeline)
+  - [Step 1: Discover Schools](#step-1-discover-schools--school_sports_scraperpy)
+  - [Step 2: Extract Athletics Contacts](#step-2-extract-athletics-contacts--school_contact_scraperpy)
+  - [Step 3: Generate Emails](#step-3-generate-emails--generate_school_emailspy)
+  - [Step 4: Send](#step-4-send--send_emailspy-shared)
+  - [Supported Sports](#supported-sports-28)
+  - [School Configuration](#school-configuration--school_configpy)
+  - [Running the Test Suite](#running-the-test-suite)
 - [Project Components](#-project-components)
 - [Output Examples](#-output-examples)
 - [Configuration](#-configuration)
@@ -26,6 +34,20 @@ A comprehensive Python-based toolkit for scraping business information from Goog
 - [License](#-license)
 
 ## ✨ Features
+
+### 🏫 K-12 School Sports Fundraiser Pipeline (New)
+- Discover K-12 schools in any US city, state, or district via Google Search
+- Filter results to `.k12` and `.edu` domains — no business noise
+- Extract athletics directors, coaches, and staff contacts from school websites
+- Three extraction strategies handle table-based, card/div-based, and plain-text athletics pages
+- Detect the specific sport(s) a contact is associated with (28 supported sports)
+- Filter out shared/office emails — personal contacts only
+- Generate school-spirit–styled fundraiser emails (green/gold template)
+- Sport-specific pitch copy tuned to each program's activity
+- Greeting name generation handles "Coach Smith", "Athletic Director", and generic staff
+- Subject lines vary deterministically per contact — no identical subject blasts
+- Summary output is compatible with the existing `send_emails.py` sender
+- **152 automated tests** across config, scraper, contact extraction, and email generation
 
 ### 🗺️ Google Maps Scraping
 - Extract comprehensive business data from Google Maps search results
@@ -65,6 +87,8 @@ A comprehensive Python-based toolkit for scraping business information from Goog
 
 ## 🚀 Quick Start
 
+### Business Outreach Pipeline
+
 Get up and running in under 5 minutes!
 
 ```bash
@@ -89,6 +113,26 @@ python send_emails.py
 ```
 
 📖 **See [QUICK_START.md](QUICK_START.md) for detailed step-by-step instructions!**
+
+---
+
+### 🏫 School Fundraiser Pipeline (New)
+
+Target K-12 athletics programs for Jose Madrid Salsa fundraiser outreach:
+
+```bash
+# 1. Discover schools in a city/state
+python school_sports_scraper.py --city "Columbus" --state "OH"
+
+# 2. Extract athletics contacts from school websites
+python school_contact_scraper.py school_results_*.csv
+
+# 3. Generate personalized fundraiser emails
+python generate_school_emails.py
+
+# 4. Send using the shared email sender
+python send_emails.py
+```
 
 ## 📦 Installation
 
@@ -293,9 +337,16 @@ Google-Scraper/
 ├── 📄 google_maps_scraper.py      # Main Google Maps scraper
 ├── 📄 contact_scraper.py          # Website contact scraper
 ├── 📄 generate_emails.py          # Email generator
-├── 📄 send_emails.py              # Automated email sender
-├── 📄 email_template.html         # HTML email template
+├── 📄 send_emails.py              # Automated email sender (shared)
+├── 📄 email_template.html         # HTML email template (business)
 ├── 📄 email_config.py             # Email configuration
+│
+├── 🏫 school_sports_scraper.py    # K-12 school athletics scraper
+├── 🏫 school_contact_scraper.py   # School website contact extractor
+├── 🏫 generate_school_emails.py   # School fundraiser email generator
+├── 🏫 school_email_template.html  # School fundraiser HTML template
+├── 🏫 school_config.py            # School pipeline configuration
+│
 ├── 📄 csv_to_table.py             # CSV to HTML converter
 ├── 📄 html_to_pdf.py              # HTML to PDF converter
 ├── 📄 requirements.txt            # Python dependencies
@@ -306,6 +357,13 @@ Google-Scraper/
 ├── 📄 PRICING_BREAKDOWN.md        # Pricing structure
 ├── 📄 EXCLUSIVE_OFFERS_GUIDE.md   # Offers documentation
 ├── 📄 LINK_STRUCTURE.md           # Link architecture
+│
+├── 📁 tests/                      # Test suite (152 tests)
+│   ├── test_school_config.py
+│   ├── test_school_sports_scraper.py
+│   ├── test_school_contact_scraper.py
+│   └── test_generate_school_emails.py
+│
 └── 📁 generated_emails/           # Output directory
 ```
 
@@ -339,6 +397,193 @@ Beautiful HTML email with:
 - Call-to-action buttons
 - Contact information
 - Responsive design
+
+---
+
+## 🏫 School Fundraiser Pipeline
+
+This pipeline targets K-12 athletics programs for Jose Madrid Salsa fundraiser outreach — coaches, athletic directors, and booster staff. Schools earn **50% profit** with zero upfront cost, making this an easy pitch to any program that needs equipment, uniforms, or travel funds.
+
+### Pipeline Overview
+
+```
+school_sports_scraper.py  →  school_contact_scraper.py  →  generate_school_emails.py  →  send_emails.py
+        (discover)                    (extract contacts)           (build emails)              (send)
+```
+
+---
+
+### Step 1: Discover Schools — `school_sports_scraper.py`
+
+Searches Google for K-12 schools in your target area and filters results to verified school domains.
+
+```bash
+# Search by city and state
+python school_sports_scraper.py --city "Columbus" --state "OH"
+
+# Search by school district name
+python school_sports_scraper.py --district "Columbus City Schools" --state "OH"
+
+# Limit results
+python school_sports_scraper.py --city "Cleveland" --state "OH" --max-results 50
+
+# Run with visible browser for debugging
+python school_sports_scraper.py --city "Dayton" --state "OH" --visible
+```
+
+**Output**: `school_results_YYYYMMDD_HHMMSS.csv`
+
+**Output Fields**:
+| Field | Description |
+|-------|-------------|
+| `school_name` | School name extracted from search result |
+| `url` | School website URL (.k12 or .edu domain) |
+| `district` | School district if detectable |
+| `city` | Target city |
+| `state` | Target state |
+| `search_query` | Which query template found this result |
+
+**Domain Filtering**: Only results matching `.k12`, `.edu`, or known school CMS domains (Finalsite, Edlio, SchoolPointe, Blackboard, etc.) are kept.
+
+---
+
+### Step 2: Extract Athletics Contacts — `school_contact_scraper.py`
+
+Visits each school website, finds the athletics section, and extracts coaching/staff contacts.
+
+```bash
+# Process the most recent school results CSV
+python school_contact_scraper.py school_results_20260321_164340.csv
+
+# Specify output filename
+python school_contact_scraper.py school_results.csv --output my_contacts
+
+# Visible browser for debugging
+python school_contact_scraper.py school_results.csv --visible
+```
+
+**Output**: `school_contacts_YYYYMMDD_HHMMSS.csv`
+
+**Three Extraction Strategies** (tried in order):
+1. **Table format** — Staff directories laid out in `<table>` rows
+2. **Card/div format** — Modern card-based layouts (`.staff-card`, `.coach-card`, etc.)
+3. **Text block format** — Plain paragraph/list content with regex matching
+
+**Output Fields**:
+| Field | Description |
+|-------|-------------|
+| `school_name` | School name |
+| `contact_name` | Staff member's name |
+| `title` | Job title (e.g., "Athletic Director", "Head Football Coach") |
+| `email` | Personal/work email address |
+| `sport` | Detected sport (from URL, heading, or context) |
+| `url` | School website URL |
+| `district` | District name |
+| `city` | City |
+| `state` | State |
+
+**Personal Email Filtering**: Shared emails like `info@`, `office@`, `admin@` are excluded — only personal staff contacts are captured.
+
+---
+
+### Step 3: Generate Emails — `generate_school_emails.py`
+
+Builds personalized HTML fundraiser emails from the contacts CSV.
+
+```bash
+# Generate from most recent contacts CSV
+python generate_school_emails.py
+
+# Specify input file
+python generate_school_emails.py --input school_contacts_20260321_170000.csv
+```
+
+**Output**: `generated_school_emails/` directory containing one HTML file per contact, plus a `summary.csv` compatible with `send_emails.py`.
+
+**Personalization Features**:
+- **Greeting names**: Generates "Coach Smith", "Athletic Director Johnson", or "Coaching Staff" based on name/title data
+- **Sport-specific pitches**: Each of the 28 supported sports has a tailored pitch paragraph explaining why salsa fundraising fits their program
+- **Subject line variation**: 6 subject line templates, selected deterministically per contact — no two identical subjects in the same batch
+- **Template variables replaced**: `{{CONTACT_NAME}}`, `{{SPORT}}`, `{{SCHOOL_NAME}}`, `{{SPORT_PITCH}}`, `{{FUNDRAISER_PERCENTAGE}}` (50%), `{{CTA_URL}}`, `{{FROM_NAME}}`, `{{FROM_EMAIL}}`
+
+**School Email Template** (`school_email_template.html`):
+- Green/gold school-spirit color scheme
+- Showcases Jose Madrid Salsa product line
+- Prominently highlights 50% profit and zero upfront cost
+- 3-step CTA: Browse → Share → Earn
+- Links to `josemadridsalsa.com`
+
+---
+
+### Step 4: Send — `send_emails.py` (shared)
+
+The same sender used for the business pipeline works for school emails.
+
+```bash
+python send_emails.py
+# When prompted, point it to generated_school_emails/summary.csv
+```
+
+---
+
+### Supported Sports (28)
+
+| | | | |
+|---|---|---|---|
+| Football | Basketball | Baseball | Softball |
+| Soccer | Volleyball | Track & Field | Cross Country |
+| Wrestling | Swimming | Tennis | Golf |
+| Lacrosse | Field Hockey | Cheerleading | Gymnastics |
+| Hockey | Water Polo | Bowling | Rugby |
+| Dance | Drill Team | Powerlifting | Archery |
+| Fencing | Rowing | Badminton | Table Tennis |
+
+---
+
+### School Configuration — `school_config.py`
+
+All school pipeline settings live in `school_config.py`:
+
+```python
+# Fundraiser terms
+FUNDRAISER_CONFIG = {
+    "fundraiser_percentage": "50%",          # Profit split shown in emails
+    "product_url": "https://josemadridsalsa.com",
+}
+
+# Your sender info
+FROM_EMAIL = "jordan@jlang.dev"
+FROM_NAME  = "Jordan Lang"
+
+# Search behavior
+MAX_SEARCH_PAGES     = 3    # Google result pages per query
+MAX_QUERIES_PER_TARGET = 5  # Query templates tried per city/district
+
+# Output paths
+TEMPLATE_PATH = "school_email_template.html"
+OUTPUT_DIR    = "generated_school_emails"
+```
+
+**To retarget for a different product/brand**, only `school_config.py` and `school_email_template.html` need updating — the scraper and contact extractor are brand-agnostic.
+
+---
+
+### Running the Test Suite
+
+```bash
+# Run all 152 tests
+python -m pytest tests/ -v
+
+# Run a specific module
+python -m pytest tests/test_school_config.py -v
+python -m pytest tests/test_school_sports_scraper.py -v
+python -m pytest tests/test_school_contact_scraper.py -v
+python -m pytest tests/test_generate_school_emails.py -v
+```
+
+Test coverage includes: config validation, search query generation, domain filtering, all three contact extraction strategies, sport detection, greeting name generation, subject line variation, email template rendering, and CSV output format.
+
+---
 
 ## ⚙️ Configuration
 
@@ -528,4 +773,4 @@ For questions, suggestions, or support:
 
 **Made with ❤️ for automating business outreach**
 
-*Last Updated: November 2024*
+*Last Updated: March 2026*
