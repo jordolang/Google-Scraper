@@ -82,3 +82,16 @@ Desktop.ini
 *~
 *.bak
 *.backup
+# Output files
+school_results_*.csv
+ohio_districts_*.csv
+contact_details_*.csv
+google_maps_results_*.csv
+schools_results_*.json
+generated_school_emails/
+generated_emails/
+*.log
+
+# Claude artifacts
+.claude/
+search
