@@ -107,6 +107,21 @@ EXCLUDED_DOMAINS = (
     "maxpreps.com",
     "hudl.com",
     "pinterest.com",
+    "nfhsnetwork.com",
+    "nfhs.org",
+    "si.com",
+    "247sports.com",
+    "rivals.com",
+    "espn.com",
+    "bleacherreport.com",
+    "cbssports.com",
+    "prep-football.net",
+    "scorestream.com",
+    "athleticnet.com",
+    "milb.com",
+    "usatoday.com",
+    "timesrecorder.com",
+    "zanesvilletimesrecorder.com",
 )
 
 

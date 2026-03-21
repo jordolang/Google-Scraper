@@ -1,28 +1,25 @@
 #!/usr/bin/env python3
 """
 School Sports Scraper
-Searches Google for K-12 schools by geographic area and collects school metadata.
+Searches for K-12 schools by geographic area using a multi-layer approach:
+  1. Direct k12 domain construction (instant, no network required)
+  2. DuckDuckGo HTML search (no API key, no bot detection)
+  3. Bing HTML search (fallback)
+  4. Selenium Google search (last resort)
 """
 
 import time
 import csv
 import json
+import re
 import random
+import urllib.parse
 from datetime import datetime
-from urllib.parse import urlparse, urljoin
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import (
-    TimeoutException,
-    NoSuchElementException,
-    WebDriverException,
-)
+from urllib.parse import urlparse
+import requests
 import argparse
 
 from school_config import (
-    SEARCH_QUERY_TEMPLATES,
     SCHOOL_DOMAIN_PATTERNS,
     SCHOOL_TITLE_KEYWORDS,
     EXCLUDED_DOMAINS,
@@ -32,13 +29,253 @@ from school_config import (
     MAX_QUERIES_PER_TARGET,
 )
 
+# ---------------------------------------------------------------------------
+# Search query templates (expanded)
+# ---------------------------------------------------------------------------
+QUERIES = [
+    "{city} {state} high school athletics site:*.k12.{state_abbrev}.us OR site:*.edu OR site:*schools.org",
+    "{city} {state} high school athletics",
+    "{city} {state} school district athletic director email",
+    "{city} {state} high school sports coaches directory",
+    "site:*.k12.{state_abbrev}.us {city} athletics coaches",
+    "{city} City Schools athletics",
+    "{city} Local Schools athletics coaches",
+    "{city} {state} high school football basketball baseball coaches",
+]
 
-class SchoolSportsScraper:
-    def __init__(self, headless=True):
-        """Initialize the scraper with Chrome options"""
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+}
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _state_abbrev(state: str) -> str:
+    if len(state) == 2:
+        return state.lower()
+    return STATE_ABBREVIATIONS.get(state.title(), state[:2].lower())
+
+
+_EXTRA_SCHOOL_PATTERNS = (
+    "schools.org",
+    "schools.net",
+    "schools.us",
+    "schooldistrict.",
+    "cityschools.",
+    "localschools.",
+    "ccsoh.us",          # Columbus City Schools
+    "wcsd.",             # Generic western county school district
+    "hcsd.",
+    "mcsd.",
+    "cusd.",
+)
+
+def _is_school_url(url: str, title: str = "", snippet: str = "") -> bool:
+    if not url:
+        return False
+    parsed = urlparse(url)
+    domain = parsed.netloc.lower()
+    for exc in EXCLUDED_DOMAINS:
+        if exc in domain:
+            return False
+    for pat in SCHOOL_DOMAIN_PATTERNS:
+        if pat in domain:
+            return True
+    for pat in _EXTRA_SCHOOL_PATTERNS:
+        if pat in domain:
+            return True
+    combined = f"{title} {snippet}".lower()
+    # Title/snippet must mention school AND athletics/coaches to qualify
+    has_school = any(kw in combined for kw in SCHOOL_TITLE_KEYWORDS)
+    has_sports = any(kw in combined for kw in ("athletics", "coach", "sports", "athletic director", "varsity"))
+    if has_school and has_sports:
+        return True
+    return False
+
+
+def _decode_ddg_url(encoded: str) -> str:
+    """Decode DuckDuckGo redirect URLs like //duckduckgo.com/l/?uddg=https%3A%2F%2F..."""
+    if "uddg=" in encoded:
+        try:
+            raw = encoded.split("uddg=")[1].split("&")[0]
+            return urllib.parse.unquote(raw)
+        except Exception:
+            pass
+    if encoded.startswith("//"):
+        encoded = "https:" + encoded
+    return encoded
+
+
+def _extract_district_from_domain(domain: str) -> str:
+    if ".k12." in domain:
+        parts = domain.replace("www.", "").split(".")
+        if parts:
+            return parts[0].replace("-", " ").title()
+    return ""
+
+
+def _clean_school_name(raw: str) -> str:
+    for suffix in [
+        " - Home", " | Home", " - Official", " | Official",
+        " - Homepage", " | Homepage", " - Athletics", " | Athletics",
+        " Athletics", " - Sports", " | Sports",
+    ]:
+        raw = raw.replace(suffix, "")
+    return raw.strip()
+
+
+# ---------------------------------------------------------------------------
+# Layer 1: Direct k12 domain construction
+# ---------------------------------------------------------------------------
+
+def probe_k12_domains(city: str, state_abbrev: str) -> list[dict]:
+    """
+    Construct likely k12 domain names and probe them with a HEAD request.
+    Ohio schools follow: <districtname>.k12.oh.us
+    """
+    city_slug = city.lower().replace(" ", "").replace("-", "")
+    city_slug_dash = city.lower().replace(" ", "-")
+
+    candidates = [
+        f"www.{city_slug}.k12.{state_abbrev}.us",
+        f"{city_slug}.k12.{state_abbrev}.us",
+        f"www.{city_slug_dash}.k12.{state_abbrev}.us",
+        f"{city_slug_dash}.k12.{state_abbrev}.us",
+        # Some districts use the city name + "schools"
+        f"www.{city_slug}schools.org",
+        f"www.{city_slug}local.org",
+        f"www.{city_slug}city.k12.{state_abbrev}.us",
+    ]
+
+    found = []
+    session = requests.Session()
+    session.headers.update(HEADERS)
+
+    for candidate in candidates:
+        url = f"https://{candidate}"
+        try:
+            resp = session.head(url, timeout=5, allow_redirects=True)
+            if resp.status_code < 400:
+                final_url = resp.url
+                domain = urlparse(final_url).netloc
+                found.append({
+                    "url": final_url,
+                    "title": f"{city} Schools",
+                    "snippet": f"Direct domain probe: {candidate}",
+                    "domain": domain,
+                    "source": "direct_probe",
+                })
+                print(f"  ✓ Direct probe hit: {final_url}")
+        except Exception:
+            pass
+
+    return found
+
+
+# ---------------------------------------------------------------------------
+# Layer 2: DuckDuckGo HTML search (no API, no Selenium)
+# ---------------------------------------------------------------------------
+
+def search_ddg(query: str) -> list[dict]:
+    """Search DuckDuckGo HTML endpoint. Returns list of {url, title, snippet}."""
+    try:
+        params = {"q": query, "kl": "us-en"}
+        resp = requests.get(
+            "https://html.duckduckgo.com/html/",
+            params=params,
+            headers=HEADERS,
+            timeout=12,
+        )
+        if resp.status_code != 200:
+            return []
+
+        html = resp.text
+
+        # Extract DDG result URLs (they are encoded redirect links)
+        raw_urls = re.findall(r'class="result__a"[^>]*href="([^"]+)"', html)
+        titles = re.findall(r'class="result__a"[^>]*href="[^"]*">([^<]+)<', html)
+        snippets = re.findall(r'class="result__snippet"[^>]*>([^<]+)<', html)
+
+        results = []
+        for i, raw in enumerate(raw_urls):
+            url = _decode_ddg_url(raw)
+            title = titles[i] if i < len(titles) else ""
+            snippet = snippets[i] if i < len(snippets) else ""
+            if _is_school_url(url, title, snippet):
+                results.append({"url": url, "title": title, "snippet": snippet, "source": "ddg"})
+
+        return results
+
+    except Exception as e:
+        print(f"    DDG error: {str(e)[:80]}")
+        return []
+
+
+# ---------------------------------------------------------------------------
+# Layer 3: Bing HTML search
+# ---------------------------------------------------------------------------
+
+def search_bing(query: str) -> list[dict]:
+    """Search Bing HTML. Returns list of {url, title, snippet}."""
+    try:
+        params = {"q": query, "count": "20"}
+        resp = requests.get(
+            "https://www.bing.com/search",
+            params=params,
+            headers=HEADERS,
+            timeout=12,
+        )
+        if resp.status_code != 200:
+            return []
+
+        html = resp.text
+
+        # Bing result links
+        urls = re.findall(r'<a href="(https?://[^"]+)"[^>]*class="tilk"', html)
+        if not urls:
+            # fallback pattern
+            urls = re.findall(r'<h2[^>]*><a href="(https?://[^"]+)"', html)
+
+        titles_raw = re.findall(r'<h2[^>]*><a[^>]+>([^<]+)</a>', html)
+        snippets_raw = re.findall(r'class="b_caption"[^>]*>.*?<p[^>]*>([^<]+)</p>', html, re.DOTALL)
+
+        results = []
+        for i, url in enumerate(urls):
+            title = titles_raw[i] if i < len(titles_raw) else ""
+            snippet = snippets_raw[i] if i < len(snippets_raw) else ""
+            if _is_school_url(url, title, snippet):
+                results.append({"url": url, "title": title, "snippet": snippet, "source": "bing"})
+
+        return results
+
+    except Exception as e:
+        print(f"    Bing error: {str(e)[:80]}")
+        return []
+
+
+# ---------------------------------------------------------------------------
+# Layer 4: Selenium Google (last resort)
+# ---------------------------------------------------------------------------
+
+def search_google_selenium(query: str, headless: bool = True) -> list[dict]:
+    """Selenium Google search. Used only when all other layers find nothing."""
+    try:
+        from selenium import webdriver
+        from selenium.webdriver.common.by import By
+        from selenium.webdriver.support.ui import WebDriverWait
+        from selenium.webdriver.support import expected_conditions as EC
+        from selenium.common.exceptions import NoSuchElementException
+
         options = webdriver.ChromeOptions()
         if headless:
-            options.add_argument("--headless")
+            options.add_argument("--headless=new")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--disable-blink-features=AutomationControlled")
@@ -46,393 +283,274 @@ class SchoolSportsScraper:
         options.add_experimental_option("useAutomationExtension", False)
         options.add_argument(
             "--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
         )
 
-        self.driver = webdriver.Chrome(options=options)
-        self.driver.set_page_load_timeout(PAGE_LOAD_TIMEOUT)
-        self.wait = WebDriverWait(self.driver, 10)
-        self.schools = []
-
-    def search_schools(self, city, state, school_type="high school", district=None, max_results=50):
-        """
-        Search Google for schools in a geographic area.
-
-        Args:
-            city: City name
-            state: State name or abbreviation
-            school_type: "high school", "middle school", or "all"
-            district: Optional school district name
-            max_results: Maximum number of schools to collect
-        """
-        queries = self._build_search_queries(city, state, school_type, district)
-        all_results = []
-
-        for idx, query in enumerate(queries[:MAX_QUERIES_PER_TARGET]):
-            print(f"\n[Query {idx + 1}/{min(len(queries), MAX_QUERIES_PER_TARGET)}] {query}")
-
-            try:
-                results = self._search_google(query)
-                all_results.extend(results)
-                print(f"  Found {len(results)} potential school results")
-            except Exception as e:
-                print(f"  Search error: {str(e)[:100]}")
-
-            # Respectful delay between searches
-            delay = REQUEST_DELAY + random.uniform(0, 2)
-            time.sleep(delay)
-
-            if len(all_results) >= max_results:
-                break
-
-        # Deduplicate and filter
-        unique_schools = self._deduplicate_schools(all_results)
-        print(f"\nFound {len(unique_schools)} unique schools after deduplication")
-
-        # Extract metadata for each school
-        for idx, school in enumerate(unique_schools[:max_results]):
-            print(f"\n[{idx + 1}/{min(len(unique_schools), max_results)}] Extracting metadata: {school.get('title', 'Unknown')}")
-
-            try:
-                metadata = self._extract_school_metadata(school)
-                if metadata:
-                    metadata["city"] = city
-                    metadata["state"] = state
-                    metadata["scraped_at"] = datetime.now().isoformat()
-                    self.schools.append(metadata)
-                    print(f"  Found: {metadata['school_name']}")
-            except Exception as e:
-                print(f"  Error: {str(e)[:100]}")
-
-            time.sleep(REQUEST_DELAY)
-
-        return self.schools
-
-    def _build_search_queries(self, city, state, school_type, district=None):
-        """Build Google search queries for the given geography"""
-        # Resolve state abbreviation
-        state_abbrev = state.lower()
-        if len(state) > 2:
-            state_abbrev = STATE_ABBREVIATIONS.get(state, state.lower()[:2])
-
-        queries = []
-
-        if district:
-            queries.append(
-                SEARCH_QUERY_TEMPLATES["by_district"].format(
-                    district=district, state=state
-                )
-            )
-
-        if school_type in ("high school", "all"):
-            queries.append(
-                SEARCH_QUERY_TEMPLATES["by_city"].format(city=city, state=state)
-            )
-            queries.append(
-                SEARCH_QUERY_TEMPLATES["by_city_coaches"].format(
-                    city=city, state=state
-                )
-            )
-            queries.append(
-                SEARCH_QUERY_TEMPLATES["by_k12_domain"].format(
-                    city=city, state_abbrev=state_abbrev
-                )
-            )
-
-        if school_type in ("middle school", "all"):
-            queries.append(
-                SEARCH_QUERY_TEMPLATES["by_city_middle"].format(
-                    city=city, state=state
-                )
-            )
-
-        return queries
-
-    def _search_google(self, query):
-        """Execute a Google search and extract results"""
-        url = f"https://www.google.com/search?q={query.replace(' ', '+')}&num=20"
-        self.driver.get(url)
-        time.sleep(2)
-
-        results = []
+        driver = webdriver.Chrome(options=options)
+        driver.set_page_load_timeout(PAGE_LOAD_TIMEOUT)
 
         try:
-            # Find search result containers
-            search_results = self.driver.find_elements(By.CSS_SELECTOR, "div.g")
+            url = f"https://www.google.com/search?q={urllib.parse.quote(query)}&num=20"
+            driver.get(url)
+            time.sleep(random.uniform(2, 4))
 
-            for result in search_results:
+            results = []
+            for result in driver.find_elements(By.CSS_SELECTOR, "div.g"):
                 try:
-                    # Extract link
-                    link_el = result.find_element(By.CSS_SELECTOR, "a")
-                    href = link_el.get_attribute("href")
-
-                    # Extract title
+                    link = result.find_element(By.CSS_SELECTOR, "a").get_attribute("href")
                     try:
                         title = result.find_element(By.CSS_SELECTOR, "h3").text
                     except NoSuchElementException:
                         title = ""
-
-                    # Extract snippet
                     try:
-                        snippet_el = result.find_element(
-                            By.CSS_SELECTOR, "div.VwiC3b, span.aCOpRe"
-                        )
-                        snippet = snippet_el.text
+                        snippet = result.find_element(By.CSS_SELECTOR, "div.VwiC3b, span.aCOpRe").text
                     except NoSuchElementException:
                         snippet = ""
-
-                    if href and self._is_school_website(href, title, snippet):
-                        results.append(
-                            {"url": href, "title": title, "snippet": snippet}
-                        )
-
-                except (NoSuchElementException, Exception):
+                    if link and _is_school_url(link, title, snippet):
+                        results.append({"url": link, "title": title, "snippet": snippet, "source": "google"})
+                except Exception:
                     continue
+            return results
+        finally:
+            driver.quit()
 
-        except Exception as e:
-            print(f"  Error parsing search results: {str(e)[:100]}")
+    except Exception as e:
+        print(f"    Selenium error: {str(e)[:80]}")
+        return []
 
-        return results
 
-    def _is_school_website(self, url, title="", snippet=""):
-        """Determine if a URL belongs to a school website"""
-        if not url:
-            return False
+# ---------------------------------------------------------------------------
+# Metadata fetch (lightweight, no Selenium)
+# ---------------------------------------------------------------------------
 
-        parsed = urlparse(url)
-        domain = parsed.netloc.lower()
-
-        # Exclude known non-school domains
-        for excluded in EXCLUDED_DOMAINS:
-            if excluded in domain:
-                return False
-
-        # Check for school domain patterns
-        for pattern in SCHOOL_DOMAIN_PATTERNS:
-            if pattern in domain:
-                return True
-
-        # Check title and snippet for school keywords
-        combined_text = f"{title} {snippet}".lower()
-        for keyword in SCHOOL_TITLE_KEYWORDS:
-            if keyword in combined_text:
-                return True
-
-        return False
-
-    def _extract_school_metadata(self, search_result):
-        """Visit a school website and extract metadata"""
-        url = search_result.get("url", "")
-        if not url:
-            return None
-
-        try:
-            self.driver.get(url)
-            time.sleep(2)
-        except (TimeoutException, WebDriverException):
-            # Use search result data as fallback
-            pass
-
-        parsed = urlparse(url)
+def fetch_school_metadata(url: str, fallback_title: str, city: str, state: str) -> dict | None:
+    """Fetch page title and basic metadata from a school URL via requests."""
+    try:
+        resp = requests.get(url, headers=HEADERS, timeout=10, allow_redirects=True)
+        final_url = resp.url
+        parsed = urlparse(final_url)
         base_url = f"{parsed.scheme}://{parsed.netloc}"
 
-        # Extract school name
-        school_name = self._extract_school_name(search_result)
+        # Extract title from HTML
+        title_match = re.search(r"<title[^>]*>([^<]+)</title>", resp.text, re.IGNORECASE)
+        page_title = _clean_school_name(title_match.group(1)) if title_match else fallback_title
+
+        # Extract h1 as backup
+        if not page_title or page_title in ("", "Unknown"):
+            h1_match = re.search(r"<h1[^>]*>([^<]+)</h1>", resp.text, re.IGNORECASE)
+            if h1_match:
+                page_title = _clean_school_name(h1_match.group(1))
+
+        district = _extract_district_from_domain(parsed.netloc)
 
         # Detect school type
-        school_type = self._detect_school_type(school_name, search_result.get("snippet", ""))
-
-        # Extract district from domain or content
-        district = self._extract_district(parsed.netloc, school_name)
+        combined = (page_title + " " + resp.text[:2000]).lower()
+        if "middle school" in combined or "junior high" in combined:
+            school_type = "middle school"
+        elif "elementary" in combined:
+            school_type = "elementary school"
+        else:
+            school_type = "high school"
 
         return {
-            "school_name": school_name,
+            "school_name": page_title or fallback_title,
             "school_url": base_url,
-            "full_url": url,
+            "full_url": final_url,
             "district": district,
+            "city": city,
+            "state": state,
             "school_type": school_type,
+            "scraped_at": datetime.now().isoformat(),
         }
 
-    def _extract_school_name(self, search_result):
-        """Extract school name from page or search result"""
-        # Try page title first
-        try:
-            page_title = self.driver.title
-            if page_title:
-                # Clean common suffixes
-                for suffix in [
-                    " - Home",
-                    " | Home",
-                    " - Official",
-                    " | Official",
-                    " - Homepage",
-                ]:
-                    page_title = page_title.replace(suffix, "")
-                if len(page_title) < 100:
-                    return page_title.strip()
-        except Exception:
-            pass
+    except Exception as e:
+        # Use fallback metadata from search result
+        parsed = urlparse(url)
+        return {
+            "school_name": _clean_school_name(fallback_title) or f"{city} School",
+            "school_url": f"{parsed.scheme}://{parsed.netloc}",
+            "full_url": url,
+            "district": _extract_district_from_domain(parsed.netloc),
+            "city": city,
+            "state": state,
+            "school_type": "high school",
+            "scraped_at": datetime.now().isoformat(),
+        }
 
-        # Try h1
-        try:
-            h1 = self.driver.find_element(By.TAG_NAME, "h1").text
-            if h1 and len(h1) < 100:
-                return h1.strip()
-        except Exception:
-            pass
 
-        # Fall back to search result title
-        title = search_result.get("title", "")
-        if title:
-            return title.strip()
+# ---------------------------------------------------------------------------
+# Main scraper class
+# ---------------------------------------------------------------------------
 
-        return "Unknown School"
+class SchoolSportsScraper:
+    def __init__(self, headless: bool = True):
+        self.headless = headless
+        self.schools: list[dict] = []
 
-    def _detect_school_type(self, name, snippet=""):
-        """Detect whether this is a high school, middle school, etc."""
-        combined = f"{name} {snippet}".lower()
+    def search_schools(
+        self,
+        city: str,
+        state: str,
+        school_type: str = "high school",
+        district: str | None = None,
+        max_results: int = 50,
+    ) -> list[dict]:
 
-        if "middle school" in combined or "junior high" in combined:
-            return "middle school"
-        if "elementary" in combined:
-            return "elementary school"
-        if "high school" in combined or "secondary" in combined:
-            return "high school"
-        if "k-8" in combined or "k8" in combined:
-            return "K-8"
+        state_ab = _state_abbrev(state)
+        raw_results: list[dict] = []
 
-        return "high school"  # Default assumption
+        # --- Layer 1: direct k12 probe ---
+        print("\n[Layer 1] Probing known k12 domain patterns...")
+        probe_hits = probe_k12_domains(city, state_ab)
+        raw_results.extend(probe_hits)
 
-    def _extract_district(self, domain, school_name):
-        """Extract school district name from domain or school name"""
-        # Try to extract from .k12 domain
-        # Pattern: district.k12.state.us
-        if ".k12." in domain:
-            parts = domain.split(".")
-            if len(parts) >= 4:
-                district_part = parts[0]
-                if district_part != "www":
-                    return district_part.replace("-", " ").title()
+        # --- Layer 2: DDG HTML queries ---
+        queries = self._build_queries(city, state, state_ab, district, school_type)
+        total = min(len(queries), MAX_QUERIES_PER_TARGET)
+        print(f"\n[Layer 2] DuckDuckGo HTML search ({total} queries)...")
 
-        # Look for district in school name
-        lower_name = school_name.lower()
-        for keyword in ("school district", "isd", "usd", "unified"):
-            if keyword in lower_name:
-                return school_name
+        for idx, q in enumerate(queries[:total]):
+            print(f"  [{idx+1}/{total}] {q}")
+            hits = search_ddg(q)
+            print(f"    → {len(hits)} school result(s)")
+            raw_results.extend(hits)
+            if len(raw_results) >= max_results:
+                break
+            time.sleep(REQUEST_DELAY + random.uniform(0.5, 1.5))
 
-        return ""
+        # --- Layer 3: Bing if still sparse ---
+        if len(raw_results) < 3:
+            print(f"\n[Layer 3] Bing HTML search (got {len(raw_results)} so far)...")
+            bing_q = f"{city} {state} high school athletics site:*.k12.{state_ab}.us OR site:*.edu"
+            hits = search_bing(bing_q)
+            print(f"    → {len(hits)} result(s)")
+            raw_results.extend(hits)
 
-    def _deduplicate_schools(self, results):
-        """Remove duplicate school entries based on URL domain"""
-        seen_domains = set()
-        unique = []
+            if not hits:
+                bing_q2 = f"{city} {state} high school football basketball coaches"
+                hits2 = search_bing(bing_q2)
+                print(f"    → {len(hits2)} result(s) (second query)")
+                raw_results.extend(hits2)
 
-        for result in results:
-            parsed = urlparse(result.get("url", ""))
-            domain = parsed.netloc.lower()
+        # --- Layer 4: Selenium Google last resort ---
+        if len(raw_results) < 2:
+            print(f"\n[Layer 4] Selenium Google fallback...")
+            g_q = f"{city} {state} high school athletics"
+            hits = search_google_selenium(g_q, headless=self.headless)
+            print(f"    → {len(hits)} result(s)")
+            raw_results.extend(hits)
 
-            if domain and domain not in seen_domains:
-                seen_domains.add(domain)
-                unique.append(result)
+        # Deduplicate by domain
+        unique = self._deduplicate(raw_results)
+        print(f"\nFound {len(unique)} unique school(s) — fetching metadata...")
 
+        for idx, r in enumerate(unique[:max_results]):
+            url = r["url"]
+            title = r.get("title", "")
+            print(f"  [{idx+1}/{min(len(unique), max_results)}] {url}")
+            meta = fetch_school_metadata(url, title, city, state)
+            if meta:
+                self.schools.append(meta)
+            time.sleep(REQUEST_DELAY)
+
+        return self.schools
+
+    # ------------------------------------------------------------------
+
+    def _build_queries(
+        self,
+        city: str,
+        state: str,
+        state_ab: str,
+        district: str | None,
+        school_type: str,
+    ) -> list[str]:
+        q_list = []
+        if district:
+            q_list.append(f"{district} school district athletics {state}")
+            q_list.append(f"{district} athletic director email")
+
+        for tmpl in QUERIES:
+            q = (
+                tmpl
+                .replace("{city}", city)
+                .replace("{state}", state)
+                .replace("{state_abbrev}", state_ab)
+            )
+            q_list.append(q)
+
+        if school_type in ("middle school", "all"):
+            q_list.append(f"{city} {state} middle school athletics coaches")
+
+        return q_list
+
+    def _deduplicate(self, results: list[dict]) -> list[dict]:
+        seen: set[str] = set()
+        unique: list[dict] = []
+        for r in results:
+            parsed = urlparse(r.get("url", ""))
+            domain = parsed.netloc.lower().replace("www.", "")
+            if domain and domain not in seen:
+                seen.add(domain)
+                unique.append(r)
         return unique
 
-    def save_to_csv(self, filename=None):
-        """Save scraped school data to CSV file"""
+    def save_to_csv(self, filename: str | None = None) -> str:
         if not filename:
-            filename = f"schools_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-
+            filename = f"school_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
         if not self.schools:
             print("No school data to save")
             return filename
-
         keys = [
-            "school_name",
-            "school_url",
-            "full_url",
-            "district",
-            "city",
-            "state",
-            "school_type",
-            "scraped_at",
+            "school_name", "school_url", "full_url", "district",
+            "city", "state", "school_type", "scraped_at",
         ]
-
         with open(filename, "w", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=keys)
             writer.writeheader()
             writer.writerows(self.schools)
-
-        print(f"\nSaved {len(self.schools)} schools to {filename}")
+        print(f"\nSaved {len(self.schools)} school(s) to {filename}")
         return filename
 
-    def save_to_json(self, filename=None):
-        """Save scraped school data to JSON file"""
+    def save_to_json(self, filename: str | None = None) -> str:
         if not filename:
-            filename = f"schools_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-
+            filename = f"school_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         if not self.schools:
             print("No school data to save")
             return filename
-
         with open(filename, "w", encoding="utf-8") as f:
             json.dump(self.schools, f, indent=2, ensure_ascii=False)
-
-        print(f"Saved {len(self.schools)} schools to {filename}")
+        print(f"Saved {len(self.schools)} school(s) to {filename}")
         return filename
 
     def close(self):
-        """Close the browser"""
-        self.driver.quit()
+        pass  # No persistent browser to close
 
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Search Google for K-12 schools by geographic area"
+        description="Find K-12 schools in a city/state using multi-layer search"
     )
-    parser.add_argument(
-        "--city", required=True, help='City name (e.g., "Columbus")'
-    )
-    parser.add_argument(
-        "--state", required=True, help='State name or abbreviation (e.g., "Ohio" or "OH")'
-    )
-    parser.add_argument(
-        "--district", default=None, help='School district name (optional)'
-    )
+    parser.add_argument("--city", required=True, help='City name (e.g., "Zanesville")')
+    parser.add_argument("--state", required=True, help='State name or abbreviation (e.g., "OH")')
+    parser.add_argument("--district", default=None, help="School district name (optional)")
     parser.add_argument(
         "--school-type",
         default="high school",
         choices=["high school", "middle school", "all"],
-        help="Type of schools to search for",
     )
-    parser.add_argument(
-        "--max-results",
-        type=int,
-        default=50,
-        help="Maximum number of schools to collect",
-    )
-    parser.add_argument(
-        "--output",
-        default="csv",
-        choices=["csv", "json", "both"],
-        help="Output format",
-    )
-    parser.add_argument("--filename", help="Custom output filename (without extension)")
-    parser.add_argument(
-        "--headless",
-        action="store_true",
-        default=True,
-        help="Run browser in headless mode",
-    )
-    parser.add_argument(
-        "--visible",
-        action="store_true",
-        help="Run browser in visible mode (opposite of headless)",
-    )
+    parser.add_argument("--max-results", type=int, default=50)
+    parser.add_argument("--output", default="csv", choices=["csv", "json", "both"])
+    parser.add_argument("--filename", help="Custom output filename (no extension)")
+    parser.add_argument("--visible", action="store_true", help="Visible browser (for Selenium fallback)")
 
     args = parser.parse_args()
-    headless = args.headless and not args.visible
 
-    scraper = SchoolSportsScraper(headless=headless)
+    scraper = SchoolSportsScraper(headless=not args.visible)
 
     try:
         scraper.search_schools(
@@ -443,18 +561,17 @@ def main():
             max_results=args.max_results,
         )
 
-        if args.output in ["csv", "both"]:
-            csv_file = f"{args.filename}.csv" if args.filename else None
-            scraper.save_to_csv(csv_file)
-
-        if args.output in ["json", "both"]:
-            json_file = f"{args.filename}.json" if args.filename else None
-            scraper.save_to_json(json_file)
+        if args.output in ("csv", "both"):
+            scraper.save_to_csv(f"{args.filename}.csv" if args.filename else None)
+        if args.output in ("json", "both"):
+            scraper.save_to_json(f"{args.filename}.json" if args.filename else None)
 
     except KeyboardInterrupt:
         print("\n\nScraping interrupted by user")
+        if scraper.schools:
+            scraper.save_to_csv()
     except Exception as e:
-        print(f"Error: {str(e)}")
+        print(f"Error: {e}")
     finally:
         scraper.close()
 
