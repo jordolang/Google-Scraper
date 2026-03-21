@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fundraising Opportunity - Jose Madrid Salsa</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background-color: #f4f4f4;
+        }
+        .email-container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffffff;
+        }
+        .header {
+            background: linear-gradient(135deg, #2d7d46 0%, #1a5c30 50%, #d4a843 100%);
+            color: #ffffff;
+            padding: 40px 30px;
+            text-align: center;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 28px;
+            font-weight: 700;
+        }
+        .header p {
+            margin: 10px 0 0 0;
+            font-size: 16px;
+            opacity: 0.95;
+        }
+        .content {
+            padding: 40px 30px;
+        }
+        .greeting {
+            font-size: 18px;
+            color: #333333;
+            margin-bottom: 20px;
+        }
+        .greeting strong {
+            color: #2d7d46;
+        }
+        .intro {
+            font-size: 16px;
+            line-height: 1.6;
+            color: #555555;
+            margin-bottom: 30px;
+        }
+        .profit-box {
+            background: linear-gradient(135deg, #2d7d46 0%, #1a5c30 100%);
+            color: #ffffff;
+            padding: 30px;
+            border-radius: 12px;
+            text-align: center;
+            margin: 30px 0;
+        }
+        .profit-box h2 {
+            margin: 0 0 10px 0;
+            font-size: 24px;
+        }
+        .profit-box .big-number {
+            font-size: 56px;
+            font-weight: 700;
+            margin: 10px 0;
+        }
+        .profit-box p {
+            margin: 5px 0;
+            font-size: 16px;
+            opacity: 0.95;
+        }
+        .how-it-works {
+            background-color: #f9f9f9;
+            padding: 30px;
+            border-radius: 12px;
+            margin: 30px 0;
+        }
+        .how-it-works h2 {
+            margin: 0 0 20px 0;
+            font-size: 24px;
+            color: #333333;
+        }
+        .step {
+            display: flex;
+            margin-bottom: 20px;
+            align-items: flex-start;
+        }
+        .step-number {
+            background-color: #2d7d46;
+            color: #ffffff;
+            width: 36px;
+            height: 36px;
+            min-width: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 18px;
+            margin-right: 15px;
+        }
+        .step-content h4 {
+            margin: 0 0 5px 0;
+            color: #2d7d46;
+            font-size: 16px;
+        }
+        .step-content p {
+            margin: 0;
+            color: #666666;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        .benefits {
+            margin: 30px 0;
+        }
+        .benefits h2 {
+            text-align: center;
+            color: #333333;
+            margin-bottom: 20px;
+        }
+        .benefit-card {
+            border: 2px solid #e0e0e0;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 15px;
+        }
+        .benefit-card h4 {
+            margin: 0 0 8px 0;
+            font-size: 16px;
+            color: #2d7d46;
+        }
+        .benefit-card p {
+            margin: 0;
+            font-size: 14px;
+            color: #666666;
+            line-height: 1.5;
+        }
+        .products-section {
+            background: linear-gradient(135deg, rgba(45, 125, 70, 0.1) 0%, rgba(212, 168, 67, 0.1) 100%);
+            padding: 25px;
+            border-radius: 12px;
+            margin: 30px 0;
+            border-left: 4px solid #d4a843;
+        }
+        .products-section h3 {
+            margin: 0 0 15px 0;
+            color: #333333;
+        }
+        .products-section ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .products-section ul li {
+            padding: 6px 0 6px 25px;
+            position: relative;
+            color: #555555;
+            font-size: 15px;
+        }
+        .products-section ul li:before {
+            content: "\2713";
+            position: absolute;
+            left: 0;
+            color: #2d7d46;
+            font-weight: 700;
+        }
+        .sport-box {
+            background: linear-gradient(135deg, rgba(45, 125, 70, 0.1) 0%, rgba(26, 92, 48, 0.1) 100%);
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border-left: 4px solid #2d7d46;
+        }
+        .sport-box p {
+            margin: 5px 0;
+            font-size: 14px;
+            color: #555555;
+        }
+        .sport-box strong {
+            color: #333333;
+        }
+        .cta-section {
+            text-align: center;
+            margin: 40px 0;
+        }
+        .cta-section h3 {
+            color: #333333;
+            margin-bottom: 15px;
+        }
+        .cta-section p {
+            color: #666666;
+            margin-bottom: 25px;
+            font-size: 15px;
+        }
+        .cta-button {
+            display: inline-block;
+            background: linear-gradient(135deg, #2d7d46 0%, #1a5c30 100%);
+            color: #ffffff;
+            padding: 15px 40px;
+            text-decoration: none;
+            border-radius: 30px;
+            font-weight: 700;
+            font-size: 16px;
+        }
+        .testimonial {
+            background-color: #fff8e1;
+            border: 2px solid #d4a843;
+            border-radius: 12px;
+            padding: 25px;
+            margin: 30px 0;
+            text-align: center;
+        }
+        .testimonial p {
+            font-style: italic;
+            color: #555555;
+            font-size: 15px;
+            line-height: 1.6;
+            margin: 0 0 10px 0;
+        }
+        .testimonial .attribution {
+            font-style: normal;
+            font-weight: 700;
+            color: #2d7d46;
+            font-size: 14px;
+        }
+        .footer {
+            background-color: #2d3748;
+            color: #ffffff;
+            padding: 30px;
+            text-align: center;
+        }
+        .footer p {
+            margin: 5px 0;
+            font-size: 14px;
+            opacity: 0.9;
+        }
+        .footer a {
+            color: #d4a843;
+            text-decoration: none;
+        }
+        @media only screen and (max-width: 600px) {
+            .header h1 {
+                font-size: 24px;
+            }
+            .content {
+                padding: 30px 20px;
+            }
+            .profit-box .big-number {
+                font-size: 42px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="email-container">
+        <!-- Header -->
+        <div class="header">
+            <h1>Jose Madrid Salsa Fundraising</h1>
+            <p>Easy, Profitable Fundraising for Your Team</p>
+        </div>
+
+        <!-- Content -->
+        <div class="content">
+            <div class="greeting">
+                Hello <strong>{{CONTACT_NAME}}</strong>!
+            </div>
+
+            <div class="intro">
+                <p>I hope your {{SPORT}} season is off to a great start at <strong>{{SCHOOL_NAME}}</strong>! My name is {{FROM_NAME}}, and I'm reaching out because I believe Jose Madrid Salsa can help your program raise funds for {{SPORT_PITCH}}.</p>
+
+                <p>We partner with K-12 athletic programs across the country to offer a fundraiser that's easy to run, loved by families, and genuinely profitable for your team.</p>
+            </div>
+
+            <!-- Profit Highlight -->
+            <div class="profit-box">
+                <h2>Your Team Keeps</h2>
+                <div class="big-number">{{FUNDRAISER_PERCENTAGE}}</div>
+                <p>of Every Sale - No Upfront Cost, No Risk</p>
+                <p style="margin-top: 15px; font-size: 14px;">Typical teams raise $2,000 - $10,000+</p>
+            </div>
+
+            <!-- How It Works -->
+            <div class="how-it-works">
+                <h2>How It Works</h2>
+
+                <div class="step">
+                    <div class="step-number">1</div>
+                    <div class="step-content">
+                        <h4>Reply to This Email</h4>
+                        <p>Let us know you're interested and we'll set everything up for your team at no cost.</p>
+                    </div>
+                </div>
+
+                <div class="step">
+                    <div class="step-number">2</div>
+                    <div class="step-content">
+                        <h4>We Create Your Team's Online Store</h4>
+                        <p>A custom fundraising page branded for {{SCHOOL_NAME}} {{SPORT}}. Share it with players' families and supporters.</p>
+                    </div>
+                </div>
+
+                <div class="step">
+                    <div class="step-number">3</div>
+                    <div class="step-content">
+                        <h4>Families Order, You Earn</h4>
+                        <p>Products ship directly to buyers. No inventory to manage, no money to collect. Your program earns {{FUNDRAISER_PERCENTAGE}} of every sale automatically.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Benefits -->
+            <div class="benefits">
+                <h2>Why Coaches Love This Fundraiser</h2>
+
+                <div class="benefit-card">
+                    <h4>Zero Upfront Cost</h4>
+                    <p>No inventory to buy, no catalogs to distribute, no money to collect from families. Start earning from day one.</p>
+                </div>
+
+                <div class="benefit-card">
+                    <h4>Premium Products People Actually Want</h4>
+                    <p>Jose Madrid Salsa is a locally-made, award-winning brand. Families reorder because they genuinely love the products.</p>
+                </div>
+
+                <div class="benefit-card">
+                    <h4>Runs Itself</h4>
+                    <p>Share the link, and the online store handles orders, payments, and shipping. Focus on coaching while the fundraiser runs.</p>
+                </div>
+
+                <div class="benefit-card">
+                    <h4>Year-Round Availability</h4>
+                    <p>Not a one-time event. Your store stays open so families can order anytime, keeping funds flowing throughout the season.</p>
+                </div>
+            </div>
+
+            <!-- Products -->
+            <div class="products-section">
+                <h3>What Families Can Order</h3>
+                <ul>
+                    <li>Award-winning salsas (mild to extra hot)</li>
+                    <li>Premium queso and cheese dips</li>
+                    <li>Signature seasonings and spice blends</li>
+                    <li>Snack mixes and appetizer kits</li>
+                </ul>
+            </div>
+
+            <!-- Testimonial -->
+            <div class="testimonial">
+                <p>"We raised over $4,200 in just three weeks. The families loved the salsa and kept ordering even after the official fundraiser ended. Easiest fundraiser we've ever done."</p>
+                <div class="attribution">- High School Football Coach</div>
+            </div>
+
+            <!-- School Info -->
+            <div class="sport-box">
+                <p><strong>School:</strong> {{SCHOOL_NAME}}</p>
+                <p><strong>Program:</strong> {{SPORT}}</p>
+                <p><strong>District:</strong> {{DISTRICT}}</p>
+                <p><strong>Location:</strong> {{CITY}}, {{STATE}}</p>
+            </div>
+
+            <!-- CTA -->
+            <div class="cta-section">
+                <h3>Ready to Start Earning for Your Team?</h3>
+                <p>Reply to this email or click below to learn more. We'll have your team's store set up within 48 hours.</p>
+                <a href="{{CTA_URL}}" class="cta-button">Get Started - It's Free</a>
+            </div>
+
+            <div style="text-align: center; margin: 30px 0; padding: 20px; background-color: #f9f9f9; border-radius: 8px;">
+                <p style="color: #555555; margin: 0; font-size: 14px;">
+                    <strong>Questions?</strong> Reply to this email or visit <a href="{{PRODUCT_URL}}" style="color: #2d7d46; text-decoration: none;">josemadridsalsa.com</a> to learn more about our fundraising program.
+                </p>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="footer">
+            <p><strong>Jose Madrid Salsa Fundraising</strong></p>
+            <p>Partnering with school athletics programs nationwide</p>
+            <p style="margin-top: 15px;">
+                <a href="{{PRODUCT_URL}}">Website</a> &bull;
+                <a href="mailto:{{FROM_EMAIL}}">{{FROM_EMAIL}}</a>
+            </p>
+            <p style="margin-top: 20px; font-size: 12px; opacity: 0.7;">
+                You're receiving this email because we believe your athletics program could benefit from our fundraising partnership.<br>
+                If you'd prefer not to receive future emails, please reply with "unsubscribe".
+            </p>
+        </div>
+    </div>
+</body>
+</html>

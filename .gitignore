@@ -51,6 +51,7 @@ chromedriver.exe
 *.html
 *.pdf
 !email_template.html
+!school_email_template.html
 !requirements.txt
 !README.md
 
