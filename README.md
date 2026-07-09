@@ -49,6 +49,14 @@ A comprehensive Python-based toolkit for scraping business information from Goog
 - Summary output is compatible with the existing `send_emails.py` sender
 - **152 automated tests** across config, scraper, contact extraction, and email generation
 
+### 🖥️ Interactive Terminal App (New)
+- Run the entire pipeline from one navigable TUI — no juggling scripts or CSVs
+- Type a search field + location and see live results in the same window
+- Check off the businesses you want, then scan their websites for contacts automatically
+- Review found contacts, pick your recipients, and compose/edit each email inline
+- Send everything over SMTP from the same screen (with a safe dry-run default)
+- `--demo` mode tours the whole flow with sample data — no browser or credentials needed
+
 ### 🗺️ Google Maps Scraping
 - Extract comprehensive business data from Google Maps search results
 - Collect: names, addresses, phone numbers, websites, ratings, reviews, categories
@@ -113,6 +121,49 @@ python send_emails.py
 ```
 
 📖 **See [QUICK_START.md](QUICK_START.md) for detailed step-by-step instructions!**
+
+---
+
+### 🖥️ Interactive Terminal App (All-in-One)
+
+Prefer to do everything from a single guided interface instead of running four
+separate scripts? Launch the TUI:
+
+```bash
+# Install dependencies (adds Textual for the TUI)
+pip install -r requirements.txt
+
+# Explore the full flow with built-in sample data — no browser or SMTP needed
+python scraper_tui.py --demo
+
+# Run for real (drives Chrome for scraping and SMTP for sending)
+python scraper_tui.py
+
+# Options
+python scraper_tui.py --from-email you@yourdomain.com   # sender address
+python scraper_tui.py --template email_template.html    # email HTML template
+python scraper_tui.py --visible                          # show the browser window
+python scraper_tui.py --help                             # all options
+```
+
+**How it flows** — each step is its own screen; `→` buttons advance and `Esc`
+goes back:
+
+| Step | Screen | What you do |
+|------|--------|-------------|
+| 1 | **Search** | Type what to search for (e.g. `electricians`) and a location; results populate below. |
+| 2 | **Results** | Space-toggle the businesses you want (`a` = all, `n` = none), then **Scan selected websites →**. |
+| 3 | **Contacts** | Review the emails/names scraped from each site; the ones with a usable email are pre-selected. |
+| 4 | **Compose** | Pick a recipient on the left, edit its subject and message on the right — edits persist as you switch. |
+| 5 | **Send** | Enter your app password, keep **Dry run** on for a preview, then send. Live progress streams in the log. |
+
+The TUI reuses the exact same scraping, generation, and sending logic as the
+standalone scripts — it's a front-end over `google_maps_scraper.py`,
+`contact_scraper.py`, `generate_emails.py`, and `send_emails.py`, wired together
+in `tui/`.
+
+> 💡 Gmail / Google Workspace senders need an **App Password**
+> (<https://myaccount.google.com/apppasswords>), not your normal password.
 
 ---
 
