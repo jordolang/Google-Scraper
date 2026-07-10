@@ -167,6 +167,33 @@ in `tui/`.
 
 ---
 
+### 🧭 Unified Launcher (New)
+
+Both terminal UIs — the scrape→email pipeline above and the [Sales Call
+Cockpit](SALES_CALL_README.md) — now live under one Textual app:
+
+```bash
+python app.py                     # home: pick pipeline or cockpit
+python app.py --start cockpit     # straight to the sales-call cockpit
+python app.py --demo              # pipeline sample-data mode
+
+# Standalone shims — same underlying app, unchanged entrypoints
+python scraper_tui.py             # pipeline shim
+python sales_calls.py             # cockpit shim
+
+# Original Rich-terminal cockpit remains available as a fallback
+python sales_calls.py --classic {prep|sheet|call}
+```
+
+`app.py` opens on a **Home** screen where you pick which tool to use; `Esc`
+pops back to Home from either flow. `scraper_tui.py` and `sales_calls.py`
+are thin shims — they boot the same unified app straight into their
+respective flow, so all existing muscle-memory commands keep working. The
+original non-Textual Rich cockpit (see `SALES_CALL_README.md`) is still
+available in full via `sales_calls.py --classic`.
+
+---
+
 ### 🏫 School Fundraiser Pipeline (New)
 
 Target K-12 athletics programs for Jose Madrid Salsa fundraiser outreach:

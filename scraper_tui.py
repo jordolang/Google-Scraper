@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""Launcher for the interactive outreach TUI.
+"""Shim: launch the unified outreach app straight into the scrape→email pipeline.
 
     python scraper_tui.py            # live mode (drives Chrome + SMTP)
-    python scraper_tui.py --demo     # explore the whole flow with sample data
+    python scraper_tui.py --demo     # explore with sample data
 
-See ``python scraper_tui.py --help`` for all options.
+Equivalent to ``python app.py --start pipeline``.
 """
+
+import sys
 
 from tui.app import main
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1:] + ["--start", "pipeline"])

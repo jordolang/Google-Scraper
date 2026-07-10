@@ -7,7 +7,10 @@ Turns scraped business data into a prioritized phone-call campaign:
   sheet  Print the prioritized call schedule
   call   Launch the live interactive call cockpit (teleprompter)
 
-Run with no arguments for an interactive menu.
+By default this launches the unified Textual outreach app straight into the
+call cockpit (no arguments opens the cockpit menu; ``prep``/``sheet``/``call``
+jump directly to that screen). Pass ``--classic [prep|sheet|call]`` to run the
+original Rich-based cockpit instead (no arguments opens its interactive menu).
 
 Optional environment:
   PAGESPEED_API_KEY   Free Google key for reliable PageSpeed scores in batch
@@ -182,20 +185,47 @@ def _menu() -> None:
         cmd_call()
 
 
-def main() -> None:
-    args = sys.argv[1:]
-    if not args:
-        _menu()
+def _launch_cockpit(screen: str | None = None) -> None:
+    """Launch the unified Textual app in the cockpit, optionally on a sub-screen."""
+    from tui.app import OutreachApp
+    from tui.pipeline import make_pipeline
+    app = OutreachApp(pipeline=make_pipeline(demo=False), demo=False, start="cockpit")
+
+    if screen in ("prep", "sheet", "call"):
+        _orig_on_mount = app.on_mount
+
+        def _on_mount_then_push() -> None:
+            _orig_on_mount()
+            from tui.cockpit.prep import PrepScreen
+            from tui.cockpit.sheet import SheetScreen
+            from tui.cockpit.call import CallScreen
+            app.push_screen({"prep": PrepScreen, "sheet": SheetScreen, "call": CallScreen}[screen]())
+
+        app.on_mount = _on_mount_then_push  # type: ignore[assignment]
+    app.run()
+
+
+def main(argv: list[str] | None = None) -> None:
+    args = list(sys.argv[1:] if argv is None else argv)
+
+    if "--classic" in args:
+        args.remove("--classic")
+        command = args[0].lower() if args else ""
+        if command == "prep":
+            cmd_prep()
+        elif command == "sheet":
+            cmd_sheet()
+        elif command == "call":
+            cmd_call()
+        else:
+            _menu()
         return
-    command = args[0].lower()
-    if command == "prep":
-        cmd_prep()
-    elif command == "sheet":
-        cmd_sheet()
-    elif command == "call":
-        cmd_call()
+
+    command = args[0].lower() if args else ""
+    if command in ("prep", "sheet", "call"):
+        _launch_cockpit(command)
     else:
-        console.print(__doc__)
+        _launch_cockpit(None)
 
 
 if __name__ == "__main__":
