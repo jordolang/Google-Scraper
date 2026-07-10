@@ -7,7 +7,6 @@ Sends personalized HTML emails from the generated_emails folder
 import os
 import re
 import smtplib
-import getpass
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
@@ -17,16 +16,22 @@ import sys
 
 
 class EmailSender:
-    def __init__(self, from_email="jordan@jlang.dev", smtp_server=None, smtp_port=None):
+    def __init__(self, from_email="jordan@jlang.dev", smtp_server=None, smtp_port=None,
+                 smtp_username=None):
         """
         Initialize the email sender
-        
+
         Args:
-            from_email: Sender email address
+            from_email: Sender email address (used in the From: header)
             smtp_server: SMTP server address (auto-detected if None)
             smtp_port: SMTP port (auto-detected if None)
+            smtp_username: Username used to authenticate to the SMTP server.
+                Defaults to from_email. For an iCloud custom email domain
+                (e.g. jlang.dev), this often must be your primary Apple ID
+                @icloud.com address, NOT the custom-domain alias.
         """
         self.from_email = from_email
+        self.smtp_username = smtp_username or from_email
         self.from_name = "Jordan Lang"
         
         # Auto-detect SMTP settings based on email provider
@@ -53,7 +58,9 @@ class EmailSender:
             'hotmail.com': ('smtp-mail.outlook.com', 587),
             'yahoo.com': ('smtp.mail.yahoo.com', 587),
             'icloud.com': ('smtp.mail.me.com', 587),
-            'jlang.dev': ('smtp.gmail.com', 587),  # Assuming Google Workspace
+            'me.com': ('smtp.mail.me.com', 587),
+            'mac.com': ('smtp.mail.me.com', 587),
+            'jlang.dev': ('smtp.mail.me.com', 587),  # iCloud Mail custom email domain (verified via MX records)
         }
         
         # Try to find matching configuration
@@ -75,7 +82,10 @@ class EmailSender:
             print(f"Connecting to {self.smtp_server}:{self.smtp_port}...")
             self.smtp_connection = smtplib.SMTP(self.smtp_server, self.smtp_port)
             self.smtp_connection.starttls()
-            self.smtp_connection.login(self.from_email, password)
+            # Normalize: Gmail/iCloud app passwords are shown in 4-char groups
+            # separated by spaces or hyphens, but must be sent as 16 raw chars.
+            clean_password = password.replace(" ", "").replace("-", "")
+            self.smtp_connection.login(self.smtp_username, clean_password)
             print("✅ Successfully connected to SMTP server\n")
             return True
         except smtplib.SMTPAuthenticationError:
@@ -365,9 +375,23 @@ def main():
     print()
     
     # Configuration
+    # NOTE: jlang.dev is hosted on iCloud Mail (verified via MX records),
+    # NOT Google Workspace. SMTP auto-detects smtp.mail.me.com:587.
     from_email = "jordan@jlang.dev"
     emails_dir = "generated_emails"
-    
+
+    # --- Credentials (read from environment — never hardcode secrets) --------
+    # Required before sending (not needed for a dry run):
+    #   EMAIL_PASSWORD : iCloud app-specific password (from appleid.apple.com)
+    #   SMTP_USERNAME  : iCloud SMTP login = primary Apple ID @icloud.com address.
+    #                    Mail is still sent *from* jordan@jlang.dev. Defaults to
+    #                    from_email if unset.
+    #
+    #   export SMTP_USERNAME="jordantlang@icloud.com"
+    #   export EMAIL_PASSWORD="xxxx-xxxx-xxxx-xxxx"
+    hardwired_password = os.environ.get("EMAIL_PASSWORD")
+    smtp_username = os.environ.get("SMTP_USERNAME", from_email)
+
     # Get user input
     print(f"Sender: {from_email}")
     print(f"Emails directory: {emails_dir}")
@@ -408,16 +432,18 @@ def main():
     skip_list = [email.strip() for email in skip_list_input.split(',')] if skip_list_input else None
     
     # Initialize sender
-    sender = EmailSender(from_email=from_email)
-    
-    # Get password if not dry run
+    sender = EmailSender(from_email=from_email, smtp_username=smtp_username)
+
+    # Connect using the env-provided credential if not a dry run
     if not dry_run:
-        print("\n⚠️  IMPORTANT: For Gmail/Google Workspace:")
-        print("   Use an App Password, not your regular password")
-        print("   Generate at: https://myaccount.google.com/apppasswords")
-        password = getpass.getpass(f"\nEnter password for {from_email}: ")
-        
-        if not sender.connect(password):
+        if not hardwired_password:
+            print("\n❌ EMAIL_PASSWORD environment variable is not set.")
+            print("   Set your iCloud app-specific password before sending:")
+            print('   export SMTP_USERNAME="jordantlang@icloud.com"')
+            print('   export EMAIL_PASSWORD="xxxx-xxxx-xxxx-xxxx"')
+            return
+        print(f"\n🔑 Authenticating as {smtp_username} (sending from {from_email})")
+        if not sender.connect(hardwired_password):
             return
     
     print("\n" + "=" * 60)
