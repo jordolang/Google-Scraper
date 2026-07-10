@@ -11,6 +11,12 @@ A comprehensive Python-based toolkit for scraping business information from Goog
 - [Features](#-features)
 - [Quick Start](#-quick-start)
 - [Installation](#-installation)
+- [Interactive Terminal App (TUI)](#-interactive-terminal-app-tui)
+  - [Launching the App](#launching-the-app)
+  - [The Five Screens](#the-five-screens)
+  - [Keyboard Shortcuts](#keyboard-shortcuts)
+  - [Command-Line Options](#command-line-options)
+  - [How It Fits Together](#how-it-fits-together)
 - [Usage — Business Pipeline](#-usage)
   - [Scraping Google Maps](#1-scraping-google-maps)
   - [Scraping Contact Details](#2-scraping-contact-details)
@@ -210,6 +216,101 @@ python send_emails.py
    python google_maps_scraper.py --help
    ```
 
+## 🖥️ Interactive Terminal App (TUI)
+
+Instead of running the four scripts by hand and passing CSV files between them,
+you can drive the **entire pipeline from one guided terminal interface**. Type
+your search, pick the businesses you want, let it scrape their websites for
+contacts, edit each email, and send — all without leaving the program.
+
+The TUI is built with [Textual](https://textual.textualize.io/) and reuses the
+exact same scraping, generation, and sending logic as the standalone scripts.
+The code lives in the `tui/` package and is launched by `scraper_tui.py`.
+
+### Launching the App
+
+```bash
+# Install dependencies (adds Textual for the TUI)
+pip install -r requirements.txt
+
+# Explore the whole flow with built-in sample data —
+# no browser, network, or SMTP credentials required
+python scraper_tui.py --demo
+
+# Run for real (drives Chrome for scraping and SMTP for sending)
+python scraper_tui.py
+```
+
+> 💡 **Try `--demo` first.** It walks you through every screen using canned
+> sample data so you can learn the interface before pointing it at live
+> Google Maps searches and your real inbox.
+
+### The Five Screens
+
+Each step is its own screen. Primary buttons (`→`) advance to the next step and
+`Esc` takes you back.
+
+| # | Screen | What you do |
+|---|--------|-------------|
+| 1 | **🔍 Search** | Type what to search for (e.g. `electricians`) and a location (e.g. `Columbus, OH`). Optionally tick *Show browser window*. Press **Search →** and results stream into the log, then populate the next screen. |
+| 2 | **✅ Results** | A checkable list of every business found. Toggle rows with **Space** (or **a** = select all, **n** = clear). When you're happy, press **Scan selected websites →**. |
+| 3 | **📇 Contacts** | The app visits each selected website and extracts emails, contact names, and phone numbers, listing what it found. Businesses with a usable email are pre-selected. Pick your recipients and press **Compose emails →**. |
+| 4 | **✉️ Compose** | Recipients are listed on the left; select one to load its **To**, **Subject**, and **Message (HTML)** on the right. Edit freely — your changes are saved automatically as you switch between recipients. Press **Send emails →** when ready. |
+| 5 | **🚀 Send** | Enter your email account's app password. Leave **Dry run** enabled for a safe preview (nothing is sent), or turn it off to deliver. Progress and a final summary stream into the log. |
+
+### Keyboard Shortcuts
+
+| Key | Action |
+|-----|--------|
+| `Space` | Toggle the highlighted row in a selection list |
+| `a` | Select all (Results / Contacts screens) |
+| `n` | Clear selection (Results / Contacts screens) |
+| `↑` / `↓` | Move between rows / recipients |
+| `Tab` | Move focus between fields and buttons |
+| `Esc` | Go back to the previous screen |
+| `Ctrl+C` | Quit the app |
+| `Ctrl+P` | Open the command palette |
+
+### Command-Line Options
+
+```bash
+python scraper_tui.py --help
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--demo` | Use built-in sample data — no browser, network, or credentials | Off |
+| `--from-email` | Sender email address (also selects the SMTP server) | `jordan@jlang.dev` |
+| `--template` | Path to the HTML email template | `email_template.html` |
+| `--visible` | Run the scraper browser in visible (non-headless) mode | Off (headless) |
+
+> 💡 Gmail / Google Workspace senders need an
+> **[App Password](https://myaccount.google.com/apppasswords)**, not their
+> normal account password.
+
+### How It Fits Together
+
+The TUI is a thin front-end — it doesn't reimplement any scraping or sending
+logic:
+
+| Pipeline step | Backed by |
+|---------------|-----------|
+| Search businesses | `google_maps_scraper.py` → `GoogleMapsScraper` |
+| Scan websites for contacts | `contact_scraper.py` → `ContactScraper` |
+| Build each email from the template | `generate_emails.py` → `EmailGenerator` |
+| Send over SMTP | `send_emails.py` → `EmailSender` |
+
+The `tui/` package wires these together:
+
+- **`tui/models.py`** — `Business` and `EmailMessage` dataclasses shared across screens.
+- **`tui/pipeline.py`** — adapts the four tools behind coarse `search → scrape → build → send` steps with streaming progress. Selenium/SMTP are imported lazily, and a `DemoPipeline` supplies the `--demo` sample data.
+- **`tui/app.py`** — the Textual app and its five screens. Blocking browser/SMTP calls run in worker threads so the interface never freezes.
+
+Because it shares the underlying tools, anything you send from the TUI behaves
+identically to the command-line workflow described below.
+
+---
+
 ## 📖 Usage
 
 ### 1. Scraping Google Maps
@@ -392,6 +493,12 @@ Google-Scraper/
 ├── 📄 email_template.html         # HTML email template (business)
 ├── 📄 email_config.py             # Email configuration
 │
+├── 🖥️ scraper_tui.py              # Interactive TUI launcher (all-in-one)
+├── 📁 tui/                        # Terminal app package
+│   ├── app.py                     #   Textual app + the five screens
+│   ├── pipeline.py                #   Adapts the scripts + demo data
+│   └── models.py                  #   Business / EmailMessage dataclasses
+│
 ├── 🏫 school_sports_scraper.py    # K-12 school athletics scraper
 ├── 🏫 school_contact_scraper.py   # School website contact extractor
 ├── 🏫 generate_school_emails.py   # School fundraiser email generator
@@ -409,11 +516,12 @@ Google-Scraper/
 ├── 📄 EXCLUSIVE_OFFERS_GUIDE.md   # Offers documentation
 ├── 📄 LINK_STRUCTURE.md           # Link architecture
 │
-├── 📁 tests/                      # Test suite (152 tests)
+├── 📁 tests/                      # Test suite
 │   ├── test_school_config.py
 │   ├── test_school_sports_scraper.py
 │   ├── test_school_contact_scraper.py
-│   └── test_generate_school_emails.py
+│   ├── test_generate_school_emails.py
+│   └── test_tui.py                #   TUI models, pipeline & navigation
 │
 └── 📁 generated_emails/           # Output directory
 ```
