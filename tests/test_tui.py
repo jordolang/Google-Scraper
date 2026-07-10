@@ -11,6 +11,7 @@ import pytest
 
 from tui.models import Business, EmailMessage
 from tui.pipeline import DemoPipeline, LivePipeline, make_pipeline
+from tui.pitch_script import load_pitch_script
 
 
 # --------------------------------------------------------------------------- #
@@ -159,6 +160,59 @@ def test_app_navigates_entire_flow():
             await pilot.click("#do-send")
             await app.workers.wait_for_complete()
             await pilot.pause()
+
+    asyncio.run(scenario())
+
+
+def test_load_pitch_script_returns_content():
+    text = load_pitch_script()
+    assert "Pitch Script" in text
+    # Pricing figures from the guide should be present.
+    assert "400" in text
+
+
+def test_load_pitch_script_falls_back_when_missing(tmp_path):
+    missing = tmp_path / "does_not_exist.md"
+    text = load_pitch_script(missing)
+    assert "Pitch Script" in text  # built-in fallback
+
+
+def test_pitch_script_modal_opens_from_any_screen():
+    from tui.app import (
+        ContactsScreen,
+        PitchScriptScreen,
+        ResultsScreen,
+        ScraperTUI,
+        SearchScreen,
+    )
+
+    async def scenario():
+        app = ScraperTUI(pipeline=make_pipeline(demo=True), demo=True)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            assert isinstance(app.screen, SearchScreen)
+
+            # Open from the search screen and toggle closed.
+            await pilot.press("ctrl+g")
+            await pilot.pause()
+            assert isinstance(app.screen, PitchScriptScreen)
+            assert app.screen.query_one("#script-viewer") is not None
+            await pilot.press("ctrl+g")
+            await pilot.pause()
+            assert isinstance(app.screen, SearchScreen)
+
+            # Advance a couple of screens, then confirm it still opens mid-flow.
+            app.screen.query_one("#field").value = "electricians"
+            await pilot.click("#go")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert isinstance(app.screen, ResultsScreen)
+            await pilot.press("ctrl+g")
+            await pilot.pause()
+            assert isinstance(app.screen, PitchScriptScreen)
+            await pilot.press("escape")
+            await pilot.pause()
+            assert isinstance(app.screen, ResultsScreen)
 
     asyncio.run(scenario())
 
