@@ -174,6 +174,33 @@ in `tui/`.
 
 ---
 
+### 🧭 Unified Launcher (New)
+
+Both terminal UIs — the scrape→email pipeline above and the [Sales Call
+Cockpit](SALES_CALL_README.md) — now live under one Textual app:
+
+```bash
+python app.py                     # home: pick pipeline or cockpit
+python app.py --start cockpit     # straight to the sales-call cockpit
+python app.py --demo              # pipeline sample-data mode
+
+# Standalone shims — same underlying app, unchanged entrypoints
+python scraper_tui.py             # pipeline shim
+python sales_calls.py             # cockpit shim
+
+# Original Rich-terminal cockpit remains available as a fallback
+python sales_calls.py --classic {prep|sheet|call}
+```
+
+`app.py` opens on a **Home** screen where you pick which tool to use; `Esc`
+pops back to Home from either flow. `scraper_tui.py` and `sales_calls.py`
+are thin shims — they boot the same unified app straight into their
+respective flow, so all existing muscle-memory commands keep working. The
+original non-Textual Rich cockpit (see `SALES_CALL_README.md`) is still
+available in full via `sales_calls.py --classic`.
+
+---
+
 ### 🏫 School Fundraiser Pipeline (New)
 
 Target K-12 athletics programs for Jose Madrid Salsa fundraiser outreach:
@@ -226,7 +253,10 @@ contacts, edit each email, and send — all without leaving the program.
 
 The TUI is built with [Textual](https://textual.textualize.io/) and reuses the
 exact same scraping, generation, and sending logic as the standalone scripts.
-The code lives in the `tui/` package and is launched by `scraper_tui.py`.
+The code lives in the `tui/` package. It's part of the [Unified
+Launcher](#-unified-launcher-new): `python app.py` opens on a Home screen where
+you pick this pipeline or the sales-call cockpit, and `python scraper_tui.py` is
+a thin shim that boots straight into the pipeline flow described here.
 
 ### Launching the App
 
@@ -236,10 +266,10 @@ pip install -r requirements.txt
 
 # Explore the whole flow with built-in sample data —
 # no browser, network, or SMTP credentials required
-python scraper_tui.py --demo
+python scraper_tui.py --demo        # or: python app.py --demo --start pipeline
 
 # Run for real (drives Chrome for scraping and SMTP for sending)
-python scraper_tui.py
+python scraper_tui.py               # or: python app.py  → pick "Pipeline" on Home
 ```
 
 > 💡 **Try `--demo` first.** It walks you through every screen using canned
@@ -282,10 +312,11 @@ pricing, objection handling, closing, and voicemail/gatekeeper wording). It has
 a table-of-contents sidebar for jumping between sections, and **Esc** closes it.
 
 Because it's meant to reach for during a live call, it's available everywhere in
-the app — you never have to leave the program. The content is read from an
-editable Markdown file, **`pitch_script.md`** in the project root, so you can
-rewrite any of the wording to match your own voice; the app picks up your edits
-the next time you open the guide.
+the unified app — on any pipeline screen **and** in the sales-call cockpit — so
+you never have to leave the program. The content is read from an editable
+Markdown file, **`pitch_script.md`** in the project root, so you can rewrite any
+of the wording to match your own voice; the app picks up your edits the next
+time you open the guide.
 
 ### Command-Line Options
 
@@ -320,7 +351,8 @@ The `tui/` package wires these together:
 
 - **`tui/models.py`** — `Business` and `EmailMessage` dataclasses shared across screens.
 - **`tui/pipeline.py`** — adapts the four tools behind coarse `search → scrape → build → send` steps with streaming progress. Selenium/SMTP are imported lazily, and a `DemoPipeline` supplies the `--demo` sample data.
-- **`tui/app.py`** — the Textual app and its five screens (plus the Ctrl+G pitch-script overlay). Blocking browser/SMTP calls run in worker threads so the interface never freezes.
+- **`tui/pipeline_screens.py`** — the five pipeline screens (Search, Results, Contacts, Compose, Send). Blocking browser/SMTP calls run in worker threads so the interface never freezes.
+- **`tui/app.py`** — the unified `OutreachApp` that hosts the pipeline and cockpit flows, plus the global Ctrl+G pitch-script overlay.
 - **`tui/pitch_script.py`** — loads the pitch-script guide from the editable `pitch_script.md` (with a built-in fallback).
 
 Because it shares the underlying tools, anything you send from the TUI behaves
@@ -510,12 +542,18 @@ Google-Scraper/
 ├── 📄 email_template.html         # HTML email template (business)
 ├── 📄 email_config.py             # Email configuration
 │
-├── 🖥️ scraper_tui.py              # Interactive TUI launcher (all-in-one)
+├── 🖥️ app.py                      # Unified TUI launcher (home → pipeline/cockpit)
+├── 🖥️ scraper_tui.py              # Shim: boot straight into the pipeline flow
+├── 🖥️ sales_calls.py              # Shim: boot straight into the sales-call cockpit
 ├── 📁 tui/                        # Terminal app package
-│   ├── app.py                     #   Textual app + the five screens
+│   ├── app.py                     #   Unified OutreachApp + Ctrl+G pitch overlay
+│   ├── home.py                    #   Home screen (pick pipeline or cockpit)
+│   ├── pipeline_screens.py        #   Search/Results/Contacts/Compose/Send screens
 │   ├── pipeline.py                #   Adapts the scripts + demo data
 │   ├── pitch_script.py            #   Loads the in-app pitch guide
+│   ├── cockpit/                   #   Sales-call cockpit screens
 │   └── models.py                  #   Business / EmailMessage dataclasses
+├── 📁 salescall/                  # Sales-call cockpit engine (playbook, intel)
 ├── 📞 pitch_script.md             # Editable website pitch script (Ctrl+G)
 │
 ├── 🏫 school_sports_scraper.py    # K-12 school athletics scraper

@@ -7,6 +7,7 @@ Scrapes business information including names, addresses, phone numbers, websites
 import time
 import csv
 import json
+import re
 from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -32,12 +33,17 @@ class GoogleMapsScraper:
         self.driver = webdriver.Chrome(options=options)
         self.wait = WebDriverWait(self.driver, 10)
         self.businesses = []
+        self.search_term = ""
+        self.location = ""
 
     def search(self, search_term, location=""):
         """Search for businesses on Google Maps"""
+        # Remember the seed query so each record knows its local-search origin.
+        self.search_term = search_term
+        self.location = location
         query = f"{search_term} {location}".strip()
         url = f"https://www.google.com/maps/search/{query.replace(' ', '+')}"
-        
+
         print(f"Searching for: {query}")
         self.driver.get(url)
         time.sleep(3)
@@ -159,6 +165,73 @@ class GoogleMapsScraper:
         
         return list(urls)
 
+    def _extract_rating_reviews(self):
+        """Extract (rating, reviews_count) using several fallback strategies.
+
+        Google Maps renders these as e.g. "4.9(127)" inside div.F7nice, or in
+        aria-labels like "4.9 stars" / "127 reviews". We try structured
+        selectors first, then regex the block text so a DOM tweak can't zero
+        us out.
+        """
+        rating, reviews = "", ""
+        paren_re = re.compile(r"^\(\s*([\d,]+)\s*\)$")  # e.g. "(94)" / "(1,234)"
+
+        # --- Rating: the aria-hidden span inside the F7nice block ---
+        try:
+            block = self.driver.find_element(By.CSS_SELECTOR, "div.F7nice")
+        except NoSuchElementException:
+            block = None
+        if block is not None:
+            try:
+                rating = block.find_element(
+                    By.CSS_SELECTOR, 'span[aria-hidden="true"]'
+                ).text.strip()
+            except NoSuchElementException:
+                m = re.search(r"\d+\.\d+", block.text)
+                rating = m.group(0) if m else ""
+
+        # --- Reviews: the count renders as a "(N)" span near the rating, and
+        #     sometimes as an "N reviews" aria-label. Class names are obfuscated
+        #     and change, so match by shape, scoped to the rating container. ---
+        def _digits_from_paren_spans(scope):
+            for span in scope.find_elements(By.TAG_NAME, "span"):
+                try:
+                    m = paren_re.match(span.text.strip())
+                except StaleElementReferenceException:
+                    continue
+                if m:
+                    return re.sub(r"[^\d]", "", m.group(1))
+            return ""
+
+        # 1) Look right around the rating block (its parent container).
+        if not reviews and block is not None:
+            try:
+                container = block.find_element(By.XPATH, "./..")
+                reviews = _digits_from_paren_spans(container)
+            except (NoSuchElementException, StaleElementReferenceException):
+                pass
+
+        # 2) An aria-label like "123 reviews" anywhere in the header.
+        if not reviews:
+            for el in self.driver.find_elements(By.CSS_SELECTOR, "[aria-label*='review' i]"):
+                label = el.get_attribute("aria-label") or ""
+                m = re.search(r"([\d,]+)\s*review", label, re.IGNORECASE)
+                if m:
+                    reviews = re.sub(r"[^\d]", "", m.group(1))
+                    break
+
+        # 3) Last resort: the known (current) count span class.
+        if not reviews:
+            try:
+                txt = self.driver.find_element(By.CSS_SELECTOR, "span.UY7F9").text.strip()
+                m = paren_re.match(txt) or re.search(r"([\d,]+)", txt)
+                if m:
+                    reviews = re.sub(r"[^\d]", "", m.group(1))
+            except NoSuchElementException:
+                pass
+
+        return rating, reviews
+
     def _extract_business_details(self):
         """Extract details from a business listing page"""
         data = {}
@@ -172,21 +245,10 @@ class GoogleMapsScraper:
             except:
                 data['name'] = ''
             
-            # Rating
-            try:
-                rating = self.driver.find_element(By.CSS_SELECTOR, 
-                    'div.F7nice span[aria-hidden="true"]').text
-                data['rating'] = rating
-            except:
-                data['rating'] = ''
-            
-            # Number of reviews
-            try:
-                reviews = self.driver.find_element(By.CSS_SELECTOR, 
-                    'div.F7nice span[aria-label*="reviews"]').text
-                data['reviews_count'] = reviews.strip('()')
-            except:
-                data['reviews_count'] = ''
+            # Rating + number of reviews (robust, multi-strategy)
+            rating, reviews_count = self._extract_rating_reviews()
+            data['rating'] = rating
+            data['reviews_count'] = reviews_count
             
             # Category
             try:
@@ -238,8 +300,12 @@ class GoogleMapsScraper:
             
             # URL
             data['url'] = self.driver.current_url
-            
-            print(f"  ✓ {data['name']}")
+
+            # Seed-search provenance (origin for local-SEO ranking).
+            data['search_term'] = self.search_term
+            data['search_location'] = self.location
+
+            print(f"  ✓ {data['name']}  ({data.get('rating','?')}★ / {data.get('reviews_count','?')} reviews)")
             return data
             
         except Exception as e:
@@ -255,8 +321,9 @@ class GoogleMapsScraper:
             print("No data to save")
             return
         
-        keys = ['name', 'rating', 'reviews_count', 'category', 'address', 
-                'phone', 'website', 'plus_code', 'hours', 'url']
+        keys = ['name', 'rating', 'reviews_count', 'category', 'address',
+                'phone', 'website', 'plus_code', 'hours', 'url',
+                'search_term', 'search_location']
         
         with open(filename, 'w', newline='', encoding='utf-8') as f:
             writer = csv.DictWriter(f, fieldnames=keys)
