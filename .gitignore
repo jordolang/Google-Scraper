@@ -92,6 +92,9 @@ generated_school_emails/
 generated_emails/
 *.log
 
+# Sales call cockpit cache + session state (intel JSON, dispositions)
+.salescall_cache/
+
 # Claude artifacts
 .claude/
 search
