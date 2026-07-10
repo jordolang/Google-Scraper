@@ -2,8 +2,12 @@ import importlib
 
 
 def test_app_module_exposes_main():
-    mod = importlib.import_module("app")
-    assert hasattr(mod, "main") or hasattr(mod, "__file__")
+    # app.py's `main` must literally BE tui.app.main (a re-export), not merely
+    # some callable named "main" — otherwise this test would pass even if the
+    # shim's dispatch to the unified app silently broke.
+    app = importlib.import_module("app")
+    import tui.app
+    assert app.main is tui.app.main
 
 
 def test_sales_calls_classic_dispatch(monkeypatch):
