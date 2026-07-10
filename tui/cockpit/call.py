@@ -48,6 +48,7 @@ class CallScreen(Screen):
         self._pb: Optional[Playbook] = None
         self._on_brief: bool = True
         self._start_monotonic: float = 0.0
+        self._timer = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -84,7 +85,9 @@ class CallScreen(Screen):
         self._start_monotonic = time.monotonic()
         self._entry = entry
         self._render_view()
-        self.set_interval(1.0, self._tick)
+        if self._timer is not None:
+            self._timer.stop()
+        self._timer = self.set_interval(1.0, self._tick)
 
     def _tick(self) -> None:
         if not self._on_brief:
@@ -112,7 +115,6 @@ class CallScreen(Screen):
     def action_next_step(self) -> None:
         if self._on_brief:
             self._on_brief = False
-            self.step_index = 0
         else:
             self.step_index = min(self.step_index + 1, len(self._steps) - 1)
         self._render_view()
@@ -163,6 +165,8 @@ class CallScreen(Screen):
     def _advance(self) -> None:
         self.business_index += 1
         if self.business_index >= len(self.pending):
+            if self._timer is not None:
+                self._timer.stop()
             self.query_one("#call-panel", Static).update("[b green]Queue complete! 🎉[/]")
             self.query_one("#call-status", Static).update(
                 " · ".join(f"{k}:{v}" for k, v in self.app.session.stats().items()) or "no calls logged"
