@@ -47,6 +47,13 @@ RichLog { height: 10; border: round $panel; padding: 0 1; }
 OptionList { height: auto; border: round $primary; padding: 0 1; }
 #call-panel { height: 1fr; min-height: 12; }
 DataTable { height: 1fr; }
+ModalScreen { align: center middle; }
+#disp-body, #cb-body, #obj-body {
+    width: 80; max-width: 90%; height: auto; padding: 1 2;
+    background: $surface; border: thick $primary;
+}
+#disp-list, #obj-list { height: auto; max-height: 12; border: round $primary; }
+#obj-detail { height: auto; }
 """
 
 
