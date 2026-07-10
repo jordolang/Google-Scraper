@@ -15,6 +15,7 @@ A comprehensive Python-based toolkit for scraping business information from Goog
   - [Launching the App](#launching-the-app)
   - [The Five Screens](#the-five-screens)
   - [Keyboard Shortcuts](#keyboard-shortcuts)
+  - [Built-in Pitch Script](#built-in-pitch-script)
   - [Command-Line Options](#command-line-options)
   - [How It Fits Together](#how-it-fits-together)
 - [Usage — Business Pipeline](#-usage)
@@ -268,8 +269,23 @@ Each step is its own screen. Primary buttons (`→`) advance to the next step an
 | `↑` / `↓` | Move between rows / recipients |
 | `Tab` | Move focus between fields and buttons |
 | `Esc` | Go back to the previous screen |
+| `Ctrl+G` | Open/close the **Pitch Script** guide (from any screen) |
 | `Ctrl+C` | Quit the app |
 | `Ctrl+P` | Open the command palette |
+
+### Built-in Pitch Script
+
+Press **Ctrl+G** on any screen to pop open a scrollable **Website Pitch Script**
+— a step-by-step walkthrough of what to say when you contact a business to pitch
+them a website (opening lines, the hook, discovery questions, the offer and
+pricing, objection handling, closing, and voicemail/gatekeeper wording). It has
+a table-of-contents sidebar for jumping between sections, and **Esc** closes it.
+
+Because it's meant to reach for during a live call, it's available everywhere in
+the app — you never have to leave the program. The content is read from an
+editable Markdown file, **`pitch_script.md`** in the project root, so you can
+rewrite any of the wording to match your own voice; the app picks up your edits
+the next time you open the guide.
 
 ### Command-Line Options
 
@@ -304,7 +320,8 @@ The `tui/` package wires these together:
 
 - **`tui/models.py`** — `Business` and `EmailMessage` dataclasses shared across screens.
 - **`tui/pipeline.py`** — adapts the four tools behind coarse `search → scrape → build → send` steps with streaming progress. Selenium/SMTP are imported lazily, and a `DemoPipeline` supplies the `--demo` sample data.
-- **`tui/app.py`** — the Textual app and its five screens. Blocking browser/SMTP calls run in worker threads so the interface never freezes.
+- **`tui/app.py`** — the Textual app and its five screens (plus the Ctrl+G pitch-script overlay). Blocking browser/SMTP calls run in worker threads so the interface never freezes.
+- **`tui/pitch_script.py`** — loads the pitch-script guide from the editable `pitch_script.md` (with a built-in fallback).
 
 Because it shares the underlying tools, anything you send from the TUI behaves
 identically to the command-line workflow described below.
@@ -497,7 +514,9 @@ Google-Scraper/
 ├── 📁 tui/                        # Terminal app package
 │   ├── app.py                     #   Textual app + the five screens
 │   ├── pipeline.py                #   Adapts the scripts + demo data
+│   ├── pitch_script.py            #   Loads the in-app pitch guide
 │   └── models.py                  #   Business / EmailMessage dataclasses
+├── 📞 pitch_script.md             # Editable website pitch script (Ctrl+G)
 │
 ├── 🏫 school_sports_scraper.py    # K-12 school athletics scraper
 ├── 🏫 school_contact_scraper.py   # School website contact extractor
