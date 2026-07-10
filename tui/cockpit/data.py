@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from salescall import cache
 from salescall.data_loader import load_businesses
-from salescall.localseo import build_local_rankings, origin
+from salescall.localseo import build_local_rankings
 from salescall.models import QueueEntry
 from salescall.prioritize import build_queue
 
