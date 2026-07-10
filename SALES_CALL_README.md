@@ -3,6 +3,11 @@
 Turns scraped business data into a prioritized phone-call campaign with deep
 per-business website intelligence and a live, interactive teleprompter.
 
+> 💡 **The cockpit is now reachable from the unified outreach app** —
+> `python app.py` → Sales Call Cockpit, or `python sales_calls.py` for a
+> shortcut straight into it. The standalone Rich-terminal commands below
+> remain available as `python sales_calls.py --classic {prep|sheet|call}`.
+
 ## Quick start
 
 ```bash
