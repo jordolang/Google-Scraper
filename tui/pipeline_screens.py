@@ -383,6 +383,7 @@ class SendScreen(Screen):
             with Horizontal(id="send-actions"):
                 yield Button("← Back", id="back")
                 yield Button("Send", variant="success", id="do-send")
+                yield Button("Finish workflow →", variant="primary", id="finish", disabled=True)
             yield Rule()
             yield RichLog(id="send-log", highlight=False, markup=True, wrap=True)
         yield Footer()
@@ -443,7 +444,58 @@ class SendScreen(Screen):
 
     def _finish(self, stats: dict) -> None:
         self._reenable()
+        self._stats = stats
         self._log(
             f"[b green]Finished[/b green] — sent {stats.get('sent', 0)}, "
             f"failed {stats.get('failed', 0)}, skipped {stats.get('skipped', 0)}."
         )
+        self.query_one("#finish", Button).disabled = False
+
+    @on(Button.Pressed, "#finish")
+    def _complete(self) -> None:
+        self.app.push_screen(CompleteScreen(getattr(self, "_stats", {})))
+
+
+class CompleteScreen(Screen):
+    """Final workflow summary with a direct path into another campaign."""
+
+    BINDINGS = [Binding("escape", "app.pop_screen", "Back")]
+
+    def __init__(self, stats: dict) -> None:
+        super().__init__()
+        self.stats = stats
+
+    def compose(self) -> ComposeResult:
+        yield Header(show_clock=True)
+        with Vertical(id="complete-body"):
+            yield Static("✅  [b]Outreach workflow complete[/b]", classes="title")
+            yield Static(
+                "Results scraped → websites scanned → contacts gathered → "
+                "emails assembled → delivery completed.",
+                classes="hint",
+            )
+            yield Static("", id="complete-summary")
+            with Horizontal(id="complete-actions"):
+                yield Button("Start another campaign", variant="primary", id="restart")
+                yield Button("Return home", id="home")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.query_one("#complete-summary", Static).update(
+            f"Businesses: [b]{len(self.app.businesses)}[/b]   "  # type: ignore[attr-defined]
+            f"Websites scanned: [b]{len(self.app.contacts)}[/b]   "  # type: ignore[attr-defined]
+            f"Emails assembled: [b]{len(self.app.messages)}[/b]   "  # type: ignore[attr-defined]
+            f"Sent: [b green]{self.stats.get('sent', 0)}[/b green]   "
+            f"Failed: [b red]{self.stats.get('failed', 0)}[/b red]   "
+            f"Skipped: [b]{self.stats.get('skipped', 0)}[/b]"
+        )
+
+    @on(Button.Pressed, "#restart")
+    def _restart(self) -> None:
+        self.app.reset_pipeline_state()  # type: ignore[attr-defined]
+        self.app.push_screen(SearchScreen())
+
+    @on(Button.Pressed, "#home")
+    def _home(self) -> None:
+        from .home import HomeScreen
+        self.app.push_screen(HomeScreen())
