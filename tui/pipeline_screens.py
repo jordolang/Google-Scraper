@@ -127,13 +127,15 @@ class ResultsScreen(Screen):
             yield Static("✅  [b]Select businesses to scan[/b]", classes="title")
             yield Static(
                 "Space toggles a row · [b]a[/b] all · [b]n[/b] none. Selected sites "
-                "will be scanned for contact info.",
+                "will be scanned for contact info. Use the button below to continue.",
                 classes="hint",
             )
-            yield SelectionList(id="results-list")
             with Horizontal(id="results-actions"):
                 yield Button("← Back", id="back")
-                yield Button("Scan selected websites →", variant="primary", id="scan")
+                scan = Button("Continue: scan selected websites →", variant="primary", id="scan")
+                scan.tooltip = "Scan the selected businesses, then continue to contact selection"
+                yield scan
+            yield SelectionList(id="results-list")
             yield Rule()
             yield RichLog(id="results-log", highlight=False, markup=True, wrap=True)
         yield Footer()

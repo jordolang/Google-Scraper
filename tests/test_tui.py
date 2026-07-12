@@ -130,6 +130,9 @@ def test_app_navigates_entire_flow():
             await pilot.pause()
             assert isinstance(app.screen, ResultsScreen)
             assert len(app.businesses) == 5
+            scan = app.screen.query_one("#scan")
+            assert "Continue" in str(scan.label)
+            assert scan.tooltip
 
             await pilot.click("#scan")
             await app.workers.wait_for_complete()
