@@ -110,6 +110,7 @@ def test_demo_send_skips_missing_address():
 def test_app_navigates_entire_flow():
     from tui.app import (
         ComposeScreen,
+        CompleteScreen,
         ContactsScreen,
         ResultsScreen,
         ScraperTUI,
@@ -159,6 +160,19 @@ def test_app_navigates_entire_flow():
             await pilot.click("#do-send")
             await app.workers.wait_for_complete()
             await pilot.pause()
+
+            finish = app.screen.query_one("#finish")
+            assert finish.disabled is False
+            await pilot.click("#finish")
+            await pilot.pause()
+            assert isinstance(app.screen, CompleteScreen)
+
+            await pilot.click("#restart")
+            await pilot.pause()
+            assert isinstance(app.screen, SearchScreen)
+            assert app.businesses == []
+            assert app.contacts == []
+            assert app.messages == []
 
     asyncio.run(scenario())
 

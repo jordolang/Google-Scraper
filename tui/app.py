@@ -17,7 +17,7 @@ from textual.binding import Binding
 from .models import Business, EmailMessage
 from .pipeline import Pipeline, make_pipeline
 from .pipeline_screens import (  # noqa: F401  re-exported for test/back-compat
-    ComposeScreen, ContactsScreen, ResultsScreen, SearchScreen, SendScreen,
+    CompleteScreen, ComposeScreen, ContactsScreen, ResultsScreen, SearchScreen, SendScreen,
 )
 
 _CSS = """
@@ -26,16 +26,18 @@ Screen { align: center top; }
 .hint { color: $text-muted; padding: 0 0 1 0; }
 .readonly { color: $text-muted; padding: 0 0 1 0; }
 #home-body, #search-body, #results-body, #contacts-body, #compose-body,
-#send-body, #cockpit-menu-body, #sheet-body, #prep-body, #call-body {
+#send-body, #complete-body, #cockpit-menu-body, #sheet-body, #prep-body, #call-body {
     width: 100%; max-width: 120; padding: 1 2;
 }
 Input { margin: 0 0 1 0; }
 Input.tiny { width: 8; }
-#search-actions, #results-actions, #contacts-actions, #compose-actions, #send-actions {
+#search-actions, #results-actions, #contacts-actions, #compose-actions, #send-actions,
+#complete-actions {
     height: auto; padding: 1 0; align-horizontal: right;
 }
 #search-actions Button, #results-actions Button, #contacts-actions Button,
 #compose-actions Button, #send-actions Button { margin: 0 0 0 2; }
+#complete-actions Button { margin: 0 0 0 2; }
 #search-opts, #send-opts { height: auto; padding: 0 0 1 0; }
 #send-opts Label { padding: 1 1 0 3; }
 SelectionList { height: 1fr; min-height: 8; border: round $primary; padding: 0 1; }
@@ -75,6 +77,13 @@ class OutreachApp(App):
         self.messages: List[EmailMessage] = []
         # cockpit shared session (created lazily to avoid import cost at startup)
         self._session = None
+
+    def reset_pipeline_state(self) -> None:
+        """Clear campaign data before starting another end-to-end run."""
+        self.businesses = []
+        self.chosen = []
+        self.contacts = []
+        self.messages = []
 
     @property
     def session(self):
