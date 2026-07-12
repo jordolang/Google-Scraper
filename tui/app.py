@@ -11,14 +11,18 @@ from __future__ import annotations
 import argparse
 from typing import List, Optional
 
-from textual.app import App
+from textual.app import App, ComposeResult
 from textual.binding import Binding
+from textual.containers import Container
+from textual.screen import ModalScreen
+from textual.widgets import MarkdownViewer, Static
 
 from .models import Business, EmailMessage
 from .pipeline import Pipeline, make_pipeline
 from .pipeline_screens import (  # noqa: F401  re-exported for test/back-compat
     CompleteScreen, ComposeScreen, ContactsScreen, ResultsScreen, SearchScreen, SendScreen,
 )
+from .pitch_script import load_pitch_script
 
 _CSS = """
 Screen { align: center top; }
@@ -56,14 +60,54 @@ ModalScreen { align: center middle; }
 }
 #disp-list, #obj-list { height: auto; max-height: 12; border: round $primary; }
 #obj-detail { height: auto; }
+#script-modal {
+    width: 90%; height: 90%; max-width: 120;
+    background: $surface; border: thick $primary; padding: 1 2;
+}
+#script-header { padding: 0 0 1 0; }
+#script-viewer { height: 1fr; }
 """
+
+
+class PitchScriptScreen(ModalScreen):
+    """A scrollable overlay showing the website pitch-script walkthrough.
+
+    Opened with Ctrl+G from anywhere; dismissed with Esc (or Ctrl+G again).
+    The content comes from ``pitch_script.md`` so it can be edited freely.
+    """
+
+    BINDINGS = [
+        Binding("escape", "close", "Close"),
+        Binding("ctrl+g", "close", "Close"),
+    ]
+
+    def compose(self) -> ComposeResult:
+        with Container(id="script-modal"):
+            yield Static(
+                "📞  [b]Pitch Script[/b]   ·   scroll with ↑/↓ · [b]Esc[/b] to close",
+                id="script-header",
+            )
+            yield MarkdownViewer(
+                load_pitch_script(),
+                show_table_of_contents=True,
+                id="script-viewer",
+            )
+
+    def on_mount(self) -> None:
+        self.query_one("#script-viewer", MarkdownViewer).focus()
+
+    def action_close(self) -> None:
+        self.dismiss()
 
 
 class OutreachApp(App):
     """Top-level app holding the pipeline + state shared across screens."""
 
     CSS = _CSS
-    BINDINGS = [Binding("ctrl+c", "quit", "Quit", priority=True)]
+    BINDINGS = [
+        Binding("ctrl+c", "quit", "Quit", priority=True),
+        Binding("ctrl+g", "pitch_script", "Pitch script", priority=True),
+    ]
 
     def __init__(self, pipeline: Pipeline, demo: bool = False, start: str = "home") -> None:
         super().__init__()
@@ -103,6 +147,13 @@ class OutreachApp(App):
         elif self._start == "cockpit":
             from .cockpit.menu import CockpitMenuScreen
             self.push_screen(CockpitMenuScreen())
+
+    def action_pitch_script(self) -> None:
+        """Toggle the pitch-script overlay (Ctrl+G from any screen)."""
+        if isinstance(self.screen, PitchScriptScreen):
+            self.pop_screen()
+        else:
+            self.push_screen(PitchScriptScreen())
 
 
 class ScraperTUI(OutreachApp):
