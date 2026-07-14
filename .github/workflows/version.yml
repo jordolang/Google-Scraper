@@ -1,0 +1,63 @@
+name: Version
+
+# Every push to main advances the version and records itself in CHANGELOG.md:
+# a feat: commit bumps the number by a tenth (1.1 → 1.2), anything else bumps
+# the letter (1.2 → 1.2a). The bumped files are committed back to main and the
+# release is tagged.
+
+on:
+  push:
+    branches: [main]
+
+# Without this, the pushed-back commit would trigger this workflow again.
+concurrency:
+  group: version-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    # Skip the workflow's own release commits, or it would version itself forever.
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # bump_version.py reads the commit range
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Bump version and write the changelog
+        id: bump
+        run: |
+          # The commits this push actually introduced. On a brand-new branch
+          # `before` is all zeros, so fall back to the last commit alone.
+          BEFORE="${{ github.event.before }}"
+          if [ "$BEFORE" = "0000000000000000000000000000000000000000" ] \
+             || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            python scripts/bump_version.py
+          else
+            python scripts/bump_version.py --since "$BEFORE"
+          fi
+          echo "version=$(cat VERSION)" >> "$GITHUB_OUTPUT"
+
+      - name: Commit, tag, and push the release
+        run: |
+          VERSION="${{ steps.bump.outputs.version }}"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add VERSION CHANGELOG.md
+          if git diff --cached --quiet; then
+            echo "Nothing to release."
+            exit 0
+          fi
+          git commit -m "chore(release): v${VERSION} [skip ci]"
+          git tag -a "v${VERSION}" -m "v${VERSION}"
+          git push origin HEAD:main --follow-tags
+
+      - name: Summary
+        run: echo "Released v${{ steps.bump.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"

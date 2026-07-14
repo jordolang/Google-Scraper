@@ -6,10 +6,11 @@ and offline — no browser, network, or SMTP credentials required.
 """
 
 import asyncio
+from unittest import mock
 
 import pytest
 
-from tui.models import Business, EmailMessage
+from tui.models import Business, EmailMessage, ScanEvent
 from tui.pipeline import DemoPipeline, LivePipeline, make_pipeline
 from tui.pitch_script import load_pitch_script
 
@@ -96,6 +97,73 @@ def test_demo_pipeline_full_flow_offline():
     assert stats["sent"] == 1
 
 
+def test_scrape_contacts_emits_scan_events():
+    pipeline = DemoPipeline()
+    businesses = pipeline.search("electricians", "Columbus, OH")
+    events = []
+    pipeline.scrape_contacts(businesses, on_event=events.append)
+
+    # One "scanning" + one terminal event per business with a website; the
+    # website-less sample only produces the terminal "skipped" event.
+    with_site = [b for b in businesses if b.website]
+    terminal = [e for e in events if e.finished]
+    assert len(terminal) == len(businesses)
+    assert len([e for e in events if not e.finished]) == len(with_site)
+    assert [e.index for e in terminal] == list(range(1, len(businesses) + 1))
+    assert all(e.total == len(businesses) for e in events)
+
+    skipped = [e for e in terminal if e.status == "skipped"]
+    assert len(skipped) == 1
+    assert skipped[0].name == "Reliable Circuit Pros"
+
+    done = [e for e in terminal if e.status == "done"]
+    assert sum(1 for e in done if e.emails) == 3
+    assert sum(len(e.phones) for e in done) == 4
+
+
+def test_scan_tally_folds_events():
+    from tui.pipeline_screens import ScanTally
+
+    tally = ScanTally(total=3)
+    tally.record(ScanEvent(1, 3, "A", status="done", emails=["a@x.com"], phones=["1", "2"]))
+    tally.record(ScanEvent(2, 3, "B", status="skipped"))
+    tally.record(ScanEvent(3, 3, "C", status="error", error="boom"))
+
+    assert (tally.scanned, tally.with_email) == (3, 1)
+    assert (tally.emails, tally.phones) == (1, 2)
+    assert (tally.skipped, tally.errors) == (1, 1)
+
+
+def test_live_pipeline_scan_survives_one_bad_website():
+    """A site that blows up must be recorded as an error, not abort the batch."""
+
+    class Boom:
+        def scrape_website(self, url):
+            if "bad" in url:
+                raise RuntimeError("connection reset")
+            return {"emails": ["ok@x.com"], "phones": ["555"], "contact_names": []}
+
+        def close(self):
+            pass
+
+    pipeline = LivePipeline()
+    businesses = [
+        Business(name="Bad", website="http://bad.example"),
+        Business(name="Good", website="http://good.example"),
+    ]
+    events = []
+    with mock.patch("contact_scraper.ContactScraper", return_value=Boom()), \
+            mock.patch("tui.pipeline.time.sleep"):
+        pipeline.scrape_contacts(businesses, on_event=events.append)
+
+    terminal = {e.name: e for e in events if e.finished}
+    assert terminal["Bad"].status == "error"
+    assert "connection reset" in terminal["Bad"].error
+    assert terminal["Good"].status == "done"
+    assert businesses[1].emails == ["ok@x.com"]
+    assert all(b.scanned for b in businesses)
+
+
 def test_demo_send_skips_missing_address():
     pipeline = DemoPipeline()
     b = Business(name="NoAddr")
@@ -177,6 +245,151 @@ def test_app_navigates_entire_flow():
             assert app.businesses == []
             assert app.contacts == []
             assert app.messages == []
+
+    asyncio.run(scenario())
+
+
+def test_results_screen_shows_scan_progress_and_totals():
+    """The scan panel must fill its bar and counters as websites are scanned."""
+    from tui.app import ResultsScreen, ScraperTUI
+
+    async def scenario():
+        app = ScraperTUI(pipeline=make_pipeline(demo=True), demo=True)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            app.screen.query_one("#field").value = "electricians"
+            await pilot.click("#go")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            results = app.screen
+            assert isinstance(results, ResultsScreen)
+            bar = results.query_one("#scan-progress")
+            assert bar.progress == 0
+
+            await pilot.click("#scan")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            # The bar is full and the tally matches the demo sample data:
+            # 5 businesses, 3 with an email, 1 with no website to visit.
+            assert bar.total == 5
+            assert bar.progress == 5
+            assert bar.percentage == 1.0
+            tally = results._tally
+            assert (tally.scanned, tally.with_email, tally.skipped) == (5, 3, 1)
+            assert tally.emails == 4  # one sample site lists two addresses
+            stats = str(results.query_one("#scan-stats").render())
+            assert "4 email(s)" in stats and "4 phone(s)" in stats
+            assert "no website" in stats
+            assert str(results.query_one("#scan-count").render()).strip() == "5/5"
+            assert "complete" in str(results.query_one("#scan-current").render()).lower()
+
+    asyncio.run(scenario())
+
+
+def test_hotkeys_advance_the_whole_workflow():
+    """Every step must be reachable from the key spelled out under its list."""
+    from tui.app import (
+        ComposeScreen,
+        CompleteScreen,
+        ContactsScreen,
+        ResultsScreen,
+        ScraperTUI,
+        SearchScreen,
+        SendScreen,
+    )
+
+    async def scenario():
+        app = ScraperTUI(pipeline=make_pipeline(demo=True), demo=True)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            app.screen.query_one("#field").value = "electricians"
+            app.screen.query_one("#location").value = "Zanesville, OH"
+            await pilot.press("enter")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert isinstance(app.screen, ResultsScreen)
+
+            # s: scan the selected websites and move on to the contacts.
+            await pilot.press("s")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert isinstance(app.screen, ContactsScreen)
+
+            # c: compose. ctrl+s: on to sending.
+            await pilot.press("c")
+            await pilot.pause()
+            assert isinstance(app.screen, ComposeScreen)
+
+            await pilot.press("ctrl+s")
+            await pilot.pause()
+            assert isinstance(app.screen, SendScreen)
+
+            # Dry run is on by default, so ctrl+s here sends nothing real.
+            await pilot.press("ctrl+s")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            await pilot.press("ctrl+f")
+            await pilot.pause()
+            assert isinstance(app.screen, CompleteScreen)
+
+    asyncio.run(scenario())
+
+
+def test_results_screen_can_skip_the_scan_and_go_straight_to_email():
+    from tui.app import ContactsScreen, ResultsScreen, ScraperTUI
+
+    async def scenario():
+        app = ScraperTUI(pipeline=make_pipeline(demo=True), demo=True)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            app.screen.query_one("#field").value = "electricians"
+            await pilot.click("#go")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert isinstance(app.screen, ResultsScreen)
+
+            await pilot.press("e")
+            await pilot.pause()
+            assert isinstance(app.screen, ContactsScreen)
+            # Nothing was scanned — we jumped ahead with the listing data.
+            assert app.contacts == app.businesses
+            assert not any(b.scanned for b in app.contacts)
+
+    asyncio.run(scenario())
+
+
+def test_phone_lookup_from_the_contacts_screen():
+    """A business the scan drew a blank on gets a number from a directory search."""
+    from tui.app import ContactsScreen, ScraperTUI
+
+    async def scenario():
+        app = ScraperTUI(pipeline=make_pipeline(demo=True), demo=True)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            app.screen.query_one("#field").value = "electricians"
+            await pilot.click("#go")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            # Skip the scan so nobody has contact info yet.
+            await pilot.press("e")
+            await pilot.pause()
+            assert isinstance(app.screen, ContactsScreen)
+            assert not any(b.has_contact_info for b in app.contacts)
+
+            await pilot.press("g")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            assert all(b.phones for b in app.contacts)
+            assert all(b.phone_source == "google" for b in app.contacts)
+            # The found numbers are on screen, tagged with where they came from.
+            options = app.screen.query_one("#contacts-list").options
+            assert any("via google" in str(o.prompt) for o in options)
+            # ...and exported.
+            assert app.pipeline.last_contacts_csv.exists()
 
     asyncio.run(scenario())
 

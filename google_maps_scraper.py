@@ -8,7 +8,9 @@ import time
 import csv
 import json
 import re
-from datetime import datetime
+from pathlib import Path
+
+import data_store
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -313,38 +315,51 @@ class GoogleMapsScraper:
             return None
 
     def save_to_csv(self, filename=None):
-        """Save scraped data to CSV file"""
-        if not filename:
-            filename = f"google_maps_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-        
+        """Save scraped data to CSV file.
+
+        With no explicit filename the rows land in
+        data/<search term>/<location>/listings<date>-<time>.csv.
+        """
         if not self.businesses:
             print("No data to save")
-            return
-        
-        keys = ['name', 'rating', 'reviews_count', 'category', 'address',
-                'phone', 'website', 'plus_code', 'hours', 'url',
-                'search_term', 'search_location']
-        
-        with open(filename, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=keys)
-            writer.writeheader()
-            writer.writerows(self.businesses)
-        
-        print(f"\n✓ Saved {len(self.businesses)} businesses to {filename}")
+            return None
+
+        if not filename:
+            path = data_store.export_listings(
+                self.businesses, self.search_term, self.location
+            )
+        else:
+            path = Path(filename)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.DictWriter(
+                    f, fieldnames=list(data_store.LISTING_FIELDS),
+                    extrasaction='ignore', restval='',
+                )
+                writer.writeheader()
+                writer.writerows(self.businesses)
+
+        print(f"\n✓ Saved {len(self.businesses)} businesses to {path}")
+        return path
 
     def save_to_json(self, filename=None):
-        """Save scraped data to JSON file"""
-        if not filename:
-            filename = f"google_maps_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-        
+        """Save scraped data to JSON file, alongside the CSV export"""
         if not self.businesses:
             print("No data to save")
-            return
-        
-        with open(filename, 'w', encoding='utf-8') as f:
+            return None
+
+        if filename:
+            path = Path(filename)
+        else:
+            directory = data_store.search_dir(self.search_term, self.location)
+            path = directory / data_store.timestamped_name("listings").replace(".csv", ".json")
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(path, 'w', encoding='utf-8') as f:
             json.dump(self.businesses, f, indent=2, ensure_ascii=False)
-        
-        print(f"✓ Saved {len(self.businesses)} businesses to {filename}")
+
+        print(f"✓ Saved {len(self.businesses)} businesses to {path}")
+        return path
 
     def close(self):
         """Close the browser"""

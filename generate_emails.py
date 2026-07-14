@@ -11,6 +11,8 @@ from pathlib import Path
 from datetime import datetime
 from urllib.parse import urlparse
 
+import data_store
+
 
 class EmailGenerator:
     def __init__(self, template_path, output_dir="generated_emails", from_email="jordan@jlang.dev"):
@@ -316,21 +318,27 @@ def main():
     # Pricing information (for reference)
     # Launchpad: $499 | Professional: Starting at $1,499+ | Enterprise: Custom
     
-    # Find all contact_details CSV files
-    csv_files = sorted(Path('.').glob('contact_details_*.csv'), reverse=True)
-    
+    # Find the contact scrapes: the data/<term>/<location>/ exports first, then
+    # any legacy contact_details_*.csv left in the working directory.
+    csv_files = sorted(
+        [p for p in data_store.data_root().rglob('contacts*.csv') if '_demo' not in p.parts]
+        + list(Path('.').glob('contact_details_*.csv')),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+
     if not csv_files:
-        print("❌ No contact_details CSV files found in current directory")
+        print("❌ No contact CSV files found in data/ or the current directory")
         return
-    
+
     print("\nAvailable CSV files:")
     for i, csv_file in enumerate(csv_files, 1):
-        print(f"{i}. {csv_file.name}")
-    
+        print(f"{i}. {csv_file}")
+
     # Use the most recent file by default
     selected_csv = csv_files[0]
-    
-    print(f"\n📋 Using most recent file: {selected_csv.name}")
+
+    print(f"\n📋 Using most recent file: {selected_csv}")
     print(f"📧 From email: {FROM_EMAIL}")
     print(f"📁 Output directory: {OUTPUT_DIR}")
     

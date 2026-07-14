@@ -113,9 +113,29 @@ def _to_int(value: str) -> int | None:
     return int(d) if d else None
 
 
-def _latest(pattern: str, directory: Path) -> Path | None:
-    matches = sorted(directory.glob(pattern), reverse=True)
-    return matches[0] if matches else None
+#: Scrapes now land in data/<term>/<location>/; the bare-filename patterns are
+#: the pre-data/ layout, still read so older exports keep working.
+_MAPS_PATTERNS = ("listings*.csv", "google_maps_results_*.csv")
+_CONTACT_PATTERNS = ("contacts*.csv", "contact_details_*.csv")
+
+
+def _search_paths(patterns: tuple[str, ...], directory: Path) -> list[Path]:
+    """Every matching CSV: loose in ``directory``, or nested under its data/."""
+    found: list[Path] = []
+    for pattern in patterns:
+        found.extend(directory.glob(pattern))
+        data_dir = directory / "data"
+        if data_dir.is_dir():
+            # Demo runs export here too — they must never reach the call queue.
+            found.extend(
+                p for p in data_dir.rglob(pattern) if "_demo" not in p.parts
+            )
+    return found
+
+
+def _latest(patterns: tuple[str, ...], directory: Path) -> Path | None:
+    matches = _search_paths(patterns, directory)
+    return max(matches, key=lambda p: p.stat().st_mtime) if matches else None
 
 
 def _read_rows(path: Path | None) -> list[dict[str, str]]:
@@ -125,15 +145,36 @@ def _read_rows(path: Path | None) -> list[dict[str, str]]:
         return list(csv.DictReader(handle))
 
 
+def _already_emailed(row: dict[str, str]) -> bool:
+    """True once the listings row records a delivered outreach email."""
+    return _clean(row.get("emailed")).lower() in {"yes", "true", "1", "sent"}
+
+
 def load_businesses(
     directory: str | Path = ".",
     maps_csv: str | Path | None = None,
     contacts_csv: str | Path | None = None,
+    include_emailed: bool = False,
 ) -> list[Business]:
-    """Load, merge, and clean the latest scrape CSVs into Business records."""
+    """Load, merge, and clean the latest scrape CSVs into Business records.
+
+    Businesses already reached by an outreach email are dropped: they have been
+    contacted, so they must not resurface in the call script.  Pass
+    ``include_emailed=True`` to see them anyway.
+    """
     directory = Path(directory)
-    maps_path = Path(maps_csv) if maps_csv else _latest("google_maps_results_*.csv", directory)
-    contacts_path = Path(contacts_csv) if contacts_csv else _latest("contact_details_*.csv", directory)
+    maps_path = Path(maps_csv) if maps_csv else _latest(_MAPS_PATTERNS, directory)
+
+    if contacts_csv:
+        contacts_path: Path | None = Path(contacts_csv)
+    elif maps_path is not None:
+        # Prefer the contact scrape that sits beside those listings, so we never
+        # merge one search's businesses with another search's emails.
+        contacts_path = _latest(_CONTACT_PATTERNS, maps_path.parent) or _latest(
+            _CONTACT_PATTERNS, directory
+        )
+    else:
+        contacts_path = _latest(_CONTACT_PATTERNS, directory)
 
     merged: dict[str, dict[str, str]] = {}
 
@@ -160,6 +201,8 @@ def load_businesses(
     for data in merged.values():
         name = _clean(data.get("name"))
         if not name:
+            continue
+        if not include_emailed and _already_emailed(data):
             continue
         phones = _collect_phones(
             data.get("phone", ""),

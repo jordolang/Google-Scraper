@@ -6,6 +6,7 @@ is unchanged. Each screen pops back to the screen beneath it on Esc.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import List
 
 from textual import on, work
@@ -15,13 +16,39 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import (
     Button, Checkbox, Footer, Header, Input, Label, OptionList,
-    RichLog, Rule, SelectionList, Static, TextArea,
+    ProgressBar, RichLog, Rule, SelectionList, Static, TextArea,
 )
 from textual.widgets.option_list import Option
 from textual.widgets.selection_list import Selection
 
-from .models import Business, EmailMessage
+from .models import Business, EmailMessage, ScanEvent
 from .pipeline import Pipeline
+
+
+@dataclass
+class ScanTally:
+    """Running totals for the contact scan, shown under the progress bar."""
+
+    total: int = 0
+    scanned: int = 0  # businesses finished, whatever the outcome
+    with_email: int = 0
+    emails: int = 0
+    phones: int = 0
+    skipped: int = 0  # had no website to visit
+    errors: int = 0
+
+    def record(self, event: ScanEvent) -> None:
+        """Fold a terminal :class:`ScanEvent` into the totals."""
+        self.scanned += 1
+        if event.status == "skipped":
+            self.skipped += 1
+        elif event.status == "error":
+            self.errors += 1
+        else:
+            self.emails += len(event.emails)
+            self.phones += len(event.phones)
+            if event.emails:
+                self.with_email += 1
 
 
 # --------------------------------------------------------------------------- #
@@ -49,6 +76,11 @@ class SearchScreen(Screen):
                 yield Checkbox("Show browser window", value=False, id="visible")
             with Horizontal(id="search-actions"):
                 yield Button("Search →", variant="primary", id="go")
+            yield Static(
+                "[b]enter[/b] run search → results    [b]esc[/b] back    "
+                "[dim]every search is saved to data/<term>/<location>/[/dim]",
+                classes="keyhints",
+            )
             yield Rule()
             yield RichLog(id="search-log", highlight=False, markup=True, wrap=True)
         yield Footer()
@@ -116,10 +148,16 @@ class ResultsScreen(Screen):
     """Multi-select list of search results; advances to contact scraping."""
 
     BINDINGS = [
-        Binding("escape", "app.pop_screen", "Back"),
+        Binding("s", "scan", "s  Scan selected → contacts"),
+        Binding("e", "skip_to_email", "e  Skip scan → email"),
         Binding("a", "select_all", "Select all"),
         Binding("n", "select_none", "Clear"),
+        Binding("escape", "app.pop_screen", "Back"),
     ]
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._tally = ScanTally()
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -135,9 +173,23 @@ class ResultsScreen(Screen):
                 scan = Button("Continue: scan selected websites →", variant="primary", id="scan")
                 scan.tooltip = "Scan the selected businesses, then continue to contact selection"
                 yield scan
+                email = Button("Skip scan: email selected →", id="skip-email")
+                email.tooltip = "Go straight to composing emails with the contacts you already have"
+                yield email
             yield SelectionList(id="results-list")
-            yield Rule()
-            yield RichLog(id="results-log", highlight=False, markup=True, wrap=True)
+            yield Static(
+                "[b]s[/b] scan selected → contacts    "
+                "[b]e[/b] skip scan → compose emails    "
+                "[b]a[/b] select all    [b]n[/b] clear    [b]esc[/b] back",
+                classes="keyhints",
+            )
+            with Vertical(id="scan-panel"):
+                with Horizontal(id="scan-bar-row"):
+                    yield ProgressBar(id="scan-progress", show_eta=True)
+                    yield Static("", id="scan-count", classes="scan-count")
+                yield Static("", id="scan-current", classes="hint")
+                yield Static("", id="scan-stats")
+                yield RichLog(id="results-log", highlight=False, markup=True, wrap=True)
         yield Footer()
 
     def on_mount(self) -> None:
@@ -147,9 +199,13 @@ class ResultsScreen(Screen):
         for idx, b in enumerate(businesses):
             sel.add_option(Selection(b.display_line, idx, True))
         sel.focus()
-        self.query_one("#results-log", RichLog).write(
-            f"[dim]{len(businesses)} businesses found. All selected by default.[/dim]"
-        )
+        self.query_one("#scan-panel", Vertical).border_title = "Website scan"
+        self._render_stats()
+        log = self.query_one("#results-log", RichLog)
+        log.write(f"[dim]{len(businesses)} businesses found. All selected by default.[/dim]")
+        saved = getattr(self.app.pipeline, "last_listings_csv", None)  # type: ignore[attr-defined]
+        if saved:
+            log.write(f"[dim]💾 Listings exported to {saved}[/dim]")
 
     def action_select_all(self) -> None:
         self.query_one("#results-list", SelectionList).select_all()
@@ -157,38 +213,97 @@ class ResultsScreen(Screen):
     def action_select_none(self) -> None:
         self.query_one("#results-list", SelectionList).deselect_all()
 
+    def action_scan(self) -> None:
+        self._scan()
+
+    def action_skip_to_email(self) -> None:
+        self._skip_to_email()
+
+    def _selected(self) -> List[Business]:
+        businesses: List[Business] = self.app.businesses  # type: ignore[attr-defined]
+        chosen_idx = self.query_one("#results-list", SelectionList).selected
+        return [businesses[i] for i in chosen_idx]
+
     @on(Button.Pressed, "#back")
     def _back(self) -> None:
         self.app.pop_screen()
 
+    @on(Button.Pressed, "#skip-email")
+    def _skip_to_email(self) -> None:
+        """Take the selection straight to the contact/compose step, unscanned."""
+        chosen = self._selected()
+        if not chosen:
+            self.query_one("#results-log", RichLog).write(
+                "[yellow]Select at least one business.[/yellow]"
+            )
+            return
+        self.app.chosen = chosen  # type: ignore[attr-defined]
+        self.app.contacts = chosen  # type: ignore[attr-defined]
+        self.app.push_screen(ContactsScreen())
+
     @on(Button.Pressed, "#scan")
     def _scan(self) -> None:
-        businesses: List[Business] = self.app.businesses  # type: ignore[attr-defined]
-        chosen_idx = self.query_one("#results-list", SelectionList).selected
-        chosen = [businesses[i] for i in chosen_idx]
+        chosen = self._selected()
         if not chosen:
             self.query_one("#results-log", RichLog).write("[yellow]Select at least one business.[/yellow]")
             return
         self.app.chosen = chosen  # type: ignore[attr-defined]
         self.query_one("#scan", Button).disabled = True
         self.query_one("#back", Button).disabled = True
+
+        self._tally = ScanTally(total=len(chosen))
+        bar = self.query_one("#scan-progress", ProgressBar)
+        bar.update(total=len(chosen), progress=0)
+        self._render_stats()
+        self.query_one("#scan-current", Static).update("[dim]Starting browser…[/dim]")
+
         log = self.query_one("#results-log", RichLog)
         log.clear()
-        log.write(f"[b]Scanning {len(chosen)} website(s) for contact info…[/b]")
+        log.write(f"[b]Scanning {len(chosen)} website(s) for emails and phone numbers…[/b]")
         self._run_scan(chosen)
 
     def _log(self, msg: str) -> None:
         self.query_one("#results-log", RichLog).write(msg)
 
+    def _render_stats(self) -> None:
+        """Repaint the counters line and the "x of y" label beside the bar."""
+        t = self._tally
+        self.query_one("#scan-count", Static).update(
+            f"[b]{t.scanned}[/b]/{t.total}" if t.total else ""
+        )
+        self.query_one("#scan-stats", Static).update(
+            f"[green]✉ {t.emails} email(s)[/green]   "
+            f"[cyan]☎ {t.phones} phone(s)[/cyan]   "
+            f"[b]{t.with_email}[/b] site(s) with an email   "
+            f"[dim]{t.skipped} no website · {t.errors} error(s)[/dim]"
+        )
+
+    def _on_event(self, event: ScanEvent) -> None:
+        """Apply one pipeline scan event to the bar, counters and current line."""
+        current = self.query_one("#scan-current", Static)
+        if not event.finished:
+            current.update(
+                f"[b]{event.index}/{event.total}[/b]  scanning "
+                f"[b]{event.name}[/b] [dim]{event.website}[/dim]"
+            )
+            return
+
+        self._tally.record(event)
+        self.query_one("#scan-progress", ProgressBar).advance(1)
+        self._render_stats()
+        if self._tally.scanned >= self._tally.total:
+            current.update("[dim]Scan complete.[/dim]")
+
     @work(thread=True, exclusive=True)
     def _run_scan(self, chosen: List[Business]) -> None:
         pipeline: Pipeline = self.app.pipeline  # type: ignore[attr-defined]
         progress = lambda m: self.app.call_from_thread(self._log, m)
+        on_event = lambda e: self.app.call_from_thread(self._on_event, e)
         try:
-            pipeline.scrape_contacts(chosen, progress=progress)
+            pipeline.scrape_contacts(chosen, progress=progress, on_event=on_event)
         except Exception as exc:  # pragma: no cover - runtime/browser dependent
             self.app.call_from_thread(self._log, f"[red]Error: {exc}[/red]")
-            self.app.call_from_thread(self._reenable)
+            self.app.call_from_thread(self._fail, str(exc))
             return
         self.app.call_from_thread(self._done, chosen)
 
@@ -196,8 +311,17 @@ class ResultsScreen(Screen):
         self.query_one("#scan", Button).disabled = False
         self.query_one("#back", Button).disabled = False
 
+    def _fail(self, message: str) -> None:
+        self._reenable()
+        self.query_one("#scan-current", Static).update(f"[red]Scan aborted: {message}[/red]")
+
     def _done(self, chosen: List[Business]) -> None:
         self._reenable()
+        t = self._tally
+        self._log(
+            f"[b green]Scan complete[/b green] — {t.scanned} site(s) scanned, "
+            f"{t.emails} email(s) and {t.phones} phone(s) found."
+        )
         self.app.contacts = chosen  # type: ignore[attr-defined]
         self.app.push_screen(ContactsScreen())
 
@@ -209,9 +333,12 @@ class ContactsScreen(Screen):
     """Show scraped contact info; pick who to build emails for."""
 
     BINDINGS = [
-        Binding("escape", "app.pop_screen", "Back"),
+        Binding("c", "compose", "c  Compose emails →"),
+        Binding("g", "lookup_google", "g  Find phones (Google)"),
+        Binding("y", "lookup_yellowpages", "y  Find phones (Yellow Pages)"),
         Binding("a", "select_all", "Select all"),
         Binding("n", "select_none", "Clear"),
+        Binding("escape", "app.pop_screen", "Back"),
     ]
 
     def compose(self) -> ComposeResult:
@@ -220,36 +347,123 @@ class ContactsScreen(Screen):
             yield Static("📇  [b]Contacts found[/b]", classes="title")
             yield Static(
                 "Businesses with an email are pre-selected. Space toggles a row. "
+                "Came up empty? Look the phone number up on Google or Yellow Pages. "
                 "Advance to compose personalized emails.",
                 classes="hint",
             )
             yield SelectionList(id="contacts-list")
+            yield Static(
+                "[b]c[/b] compose emails →    [b]g[/b] find phones (Google)    "
+                "[b]y[/b] find phones (Yellow Pages)    [b]a[/b] select all    "
+                "[b]n[/b] clear    [b]esc[/b] back",
+                classes="keyhints",
+            )
             with Horizontal(id="contacts-actions"):
                 yield Button("← Back", id="back")
+                yield Button("☎ Google", id="lookup-google")
+                yield Button("☎ Yellow Pages", id="lookup-yp")
                 yield Button("Compose emails →", variant="primary", id="compose")
             yield Static("", id="contacts-summary", classes="hint")
+            yield RichLog(id="contacts-log", highlight=False, markup=True, wrap=True)
         yield Footer()
 
     def on_mount(self) -> None:
+        self._populate()
+
+    def _populate(self) -> None:
+        """(Re)build the list — also called after a phone lookup fills rows in."""
         contacts: List[Business] = self.app.contacts  # type: ignore[attr-defined]
         sel = self.query_one("#contacts-list", SelectionList)
         sel.clear_options()
         with_email = 0
+        already = 0
         for idx, b in enumerate(contacts):
             has = b.has_email
             with_email += 1 if has else 0
             prompt = f"{b.name or '(unnamed)'} — {b.contact_line}"
-            sel.add_option(Selection(prompt, idx, has))
+            if b.emailed:
+                # Already contacted: logged on the listings CSV, dropped from
+                # the call script, and not re-selected here.
+                already += 1
+                prompt += "   ✉ already emailed"
+            sel.add_option(Selection(prompt, idx, has and not b.emailed))
         sel.focus()
-        self.query_one("#contacts-summary", Static).update(
-            f"{with_email} of {len(contacts)} businesses have a usable email address."
-        )
+
+        empty = sum(1 for b in contacts if not b.has_contact_info)
+        summary = f"{with_email} of {len(contacts)} businesses have a usable email address."
+        if empty:
+            summary += (
+                f"  {empty} website(s) gave us nothing — press [b]g[/b] (Google) or "
+                "[b]y[/b] (Yellow Pages) to look their phone number up."
+            )
+        if already:
+            summary += f"  {already} already emailed (deselected)."
+        self.query_one("#contacts-summary", Static).update(summary)
 
     def action_select_all(self) -> None:
         self.query_one("#contacts-list", SelectionList).select_all()
 
     def action_select_none(self) -> None:
         self.query_one("#contacts-list", SelectionList).deselect_all()
+
+    def action_compose(self) -> None:
+        self._go_compose()
+
+    def action_lookup_google(self) -> None:
+        self._lookup(("google",))
+
+    def action_lookup_yellowpages(self) -> None:
+        self._lookup(("yellowpages",))
+
+    # -- phone lookup --------------------------------------------------------
+    def _log(self, msg: str) -> None:
+        self.query_one("#contacts-log", RichLog).write(msg)
+
+    @on(Button.Pressed, "#lookup-google")
+    def _lookup_google_button(self) -> None:
+        self._lookup(("google",))
+
+    @on(Button.Pressed, "#lookup-yp")
+    def _lookup_yp_button(self) -> None:
+        self._lookup(("yellowpages",))
+
+    def _lookup(self, sources: tuple[str, ...]) -> None:
+        """Search a directory for the businesses whose website told us nothing."""
+        contacts: List[Business] = self.app.contacts  # type: ignore[attr-defined]
+        empty = [b for b in contacts if not b.has_contact_info]
+        log = self.query_one("#contacts-log", RichLog)
+        if not empty:
+            log.write("[dim]Every business already has contact info.[/dim]")
+            return
+        for button in ("#lookup-google", "#lookup-yp", "#compose", "#back"):
+            self.query_one(button, Button).disabled = True
+        log.write(
+            f"[b]Searching {', '.join(sources)} for {len(empty)} missing phone number(s)…[/b]"
+        )
+        self._run_lookup(contacts, sources)
+
+    @work(thread=True, exclusive=True)
+    def _run_lookup(self, contacts: List[Business], sources: tuple[str, ...]) -> None:
+        pipeline: Pipeline = self.app.pipeline  # type: ignore[attr-defined]
+        progress = lambda m: self.app.call_from_thread(self._log, m)
+        try:
+            pipeline.find_phones(contacts, sources=sources, progress=progress)
+        except Exception as exc:  # pragma: no cover - runtime/browser dependent
+            self.app.call_from_thread(self._log, f"[red]Lookup failed: {exc}[/red]")
+        self.app.call_from_thread(self._lookup_done)
+
+    def _lookup_done(self) -> None:
+        for button in ("#lookup-google", "#lookup-yp", "#compose", "#back"):
+            self.query_one(button, Button).disabled = False
+        self._populate()
+        found = sum(1 for b in self.app.contacts if b.phone_source)  # type: ignore[attr-defined]
+        saved = getattr(self.app.pipeline, "last_contacts_csv", None)  # type: ignore[attr-defined]
+        self._log(
+            f"[b green]Lookup complete[/b green] — {found} number(s) from a directory search; "
+            "they are in the CSV export and the call script."
+        )
+        if saved:
+            self._log(f"[dim]💾 Contacts exported to {saved}[/dim]")
 
     @on(Button.Pressed, "#back")
     def _back(self) -> None:
@@ -282,7 +496,12 @@ class ContactsScreen(Screen):
 class ComposeScreen(Screen):
     """Per-recipient editable subject + HTML body."""
 
-    BINDINGS = [Binding("escape", "app.pop_screen", "Back")]
+    # Letter keys would be swallowed by the subject / body editors, so the
+    # advance key is a chord here.
+    BINDINGS = [
+        Binding("ctrl+s", "send", "^s  Send emails →"),
+        Binding("escape", "app.pop_screen", "Back"),
+    ]
 
     def __init__(self) -> None:
         super().__init__()
@@ -307,10 +526,17 @@ class ComposeScreen(Screen):
                     yield Input(id="subject-field")
                     yield Label("Message (HTML)")
                     yield TextArea(id="body-field")
+            yield Static(
+                "[b]ctrl+s[/b] send emails →    [b]esc[/b] back to contacts",
+                classes="keyhints",
+            )
             with Horizontal(id="compose-actions"):
                 yield Button("← Back", id="back")
                 yield Button("Send emails →", variant="primary", id="send")
         yield Footer()
+
+    def action_send(self) -> None:
+        self._go_send()
 
     def on_mount(self) -> None:
         messages: List[EmailMessage] = self.app.messages  # type: ignore[attr-defined]
@@ -369,7 +595,11 @@ class ComposeScreen(Screen):
 class SendScreen(Screen):
     """Collect the SMTP password and send (or dry-run) all composed emails."""
 
-    BINDINGS = [Binding("escape", "app.pop_screen", "Back")]
+    BINDINGS = [
+        Binding("ctrl+s", "send_now", "^s  Send"),
+        Binding("ctrl+f", "finish", "^f  Finish →"),
+        Binding("escape", "app.pop_screen", "Back"),
+    ]
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -386,9 +616,20 @@ class SendScreen(Screen):
                 yield Button("← Back", id="back")
                 yield Button("Send", variant="success", id="do-send")
                 yield Button("Finish workflow →", variant="primary", id="finish", disabled=True)
+            yield Static(
+                "[b]ctrl+s[/b] send    [b]ctrl+f[/b] finish →    [b]esc[/b] back to compose",
+                classes="keyhints",
+            )
             yield Rule()
             yield RichLog(id="send-log", highlight=False, markup=True, wrap=True)
         yield Footer()
+
+    def action_send_now(self) -> None:
+        self._do_send()
+
+    def action_finish(self) -> None:
+        if not self.query_one("#finish", Button).disabled:
+            self._complete()
 
     def on_mount(self) -> None:
         messages: List[EmailMessage] = self.app.messages  # type: ignore[attr-defined]
@@ -477,6 +718,7 @@ class CompleteScreen(Screen):
                 classes="hint",
             )
             yield Static("", id="complete-summary")
+            yield Static("", id="complete-exports", classes="hint")
             with Horizontal(id="complete-actions"):
                 yield Button("Start another campaign", variant="primary", id="restart")
                 yield Button("Return home", id="home")
@@ -491,6 +733,19 @@ class CompleteScreen(Screen):
             f"Failed: [b red]{self.stats.get('failed', 0)}[/b red]   "
             f"Skipped: [b]{self.stats.get('skipped', 0)}[/b]"
         )
+
+        pipeline = self.app.pipeline  # type: ignore[attr-defined]
+        lines = []
+        if getattr(pipeline, "last_listings_csv", None):
+            lines.append(f"💾 Listings + outreach log: {pipeline.last_listings_csv}")
+        if getattr(pipeline, "last_contacts_csv", None):
+            lines.append(f"💾 Contacts: {pipeline.last_contacts_csv}")
+        emailed = sum(1 for b in self.app.contacts if b.emailed)  # type: ignore[attr-defined]
+        if emailed:
+            lines.append(
+                f"{emailed} business(es) logged as emailed — they are excluded from the call script."
+            )
+        self.query_one("#complete-exports", Static).update("\n".join(lines))
 
     @on(Button.Pressed, "#restart")
     def _restart(self) -> None:

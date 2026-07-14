@@ -29,6 +29,12 @@ Screen { align: center top; }
 .title { padding: 1 0 0 0; text-style: bold; }
 .hint { color: $text-muted; padding: 0 0 1 0; }
 .readonly { color: $text-muted; padding: 0 0 1 0; }
+/* The step's shortcuts, spelled out right under the list they act on, so the
+   way forward is never something you have to go hunting for. */
+.keyhints {
+    height: auto; padding: 0 1; margin: 0 0 1 0;
+    color: $text-muted; background: $panel;
+}
 #home-body, #search-body, #results-body, #contacts-body, #compose-body,
 #send-body, #complete-body, #cockpit-menu-body, #sheet-body, #prep-body, #call-body {
     width: 100%; max-width: 120; padding: 1 2;
@@ -46,6 +52,18 @@ Input.tiny { width: 8; }
 #send-opts Label { padding: 1 1 0 3; }
 SelectionList { height: 1fr; min-height: 8; border: round $primary; padding: 0 1; }
 RichLog { height: 10; border: round $panel; padding: 0 1; }
+/* Live scan panel on the results screen: progress bar + counters + log window. */
+#scan-panel {
+    height: auto; margin: 1 0 0 0; padding: 0 1;
+    border: round $primary; border-title-color: $text-muted;
+}
+#scan-bar-row { height: auto; align-vertical: middle; padding: 0 0 1 0; }
+#scan-progress { width: 1fr; }
+.scan-count { width: auto; min-width: 8; content-align: right middle; }
+#scan-current { height: 1; padding: 0; }
+#scan-stats { height: auto; padding: 0 0 1 0; }
+#results-log { height: 8; border: none; padding: 0; background: $panel; }
+#contacts-log { height: 6; }
 #compose-main { height: 1fr; min-height: 14; }
 #recipient-list { width: 40; border: round $primary; margin: 0 2 0 0; }
 #editor { width: 1fr; }

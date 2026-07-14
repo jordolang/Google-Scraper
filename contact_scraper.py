@@ -8,9 +8,11 @@ import csv
 import json
 import re
 import time
-from datetime import datetime
+from pathlib import Path
 from urllib.parse import urljoin, urlparse
 import argparse
+
+import data_store
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -220,7 +222,11 @@ class ContactScraper:
                 'contact_name': ', '.join(contact_info['contact_names']) if contact_info['contact_names'] else '',
                 'category': business.get('category', ''),
                 'rating': business.get('rating', ''),
-                'url': business.get('url', '')
+                'url': business.get('url', ''),
+                # Keep the seed search on every row so the export knows which
+                # data/<term>/<location>/ folder it belongs in.
+                'search_term': business.get('search_term', ''),
+                'search_location': business.get('search_location', ''),
             }
             
             results.append(result)
@@ -241,47 +247,70 @@ class ContactScraper:
         return results
 
     def save_to_csv(self, results, filename=None):
-        """Save results to CSV file"""
-        if not filename:
-            filename = f"contact_details_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-        
+        """Save results to CSV file.
+
+        With no explicit filename the rows land beside the listings they came
+        from, in data/<search term>/<location>/contacts<date>-<time>.csv.
+        """
         if not results:
             print("No results to save")
-            return
-        
-        keys = ['name', 'email', 'scraped_phone', 'original_phone', 'contact_name', 
-                'address', 'website', 'category', 'rating', 'url']
-        
-        with open(filename, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=keys)
-            writer.writeheader()
-            writer.writerows(results)
-        
+            return None
+
+        if not filename:
+            search_term, location = self._search_origin(results)
+            path = data_store.export_contacts(results, search_term, location)
+        else:
+            path = Path(filename)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.DictWriter(
+                    f, fieldnames=list(data_store.CONTACT_FIELDS),
+                    extrasaction='ignore', restval='',
+                )
+                writer.writeheader()
+                writer.writerows(results)
+
         # Count businesses with contact info
         with_email = sum(1 for r in results if r['email'])
         with_phone = sum(1 for r in results if r['scraped_phone'])
         with_name = sum(1 for r in results if r['contact_name'])
-        
+
         print(f"\n{'='*60}")
-        print(f"✓ Saved {len(results)} businesses to {filename}")
+        print(f"✓ Saved {len(results)} businesses to {path}")
         print(f"  - {with_email} with email addresses")
         print(f"  - {with_phone} with scraped phone numbers")
         print(f"  - {with_name} with contact names")
         print(f"{'='*60}")
+        return path
+
+    @staticmethod
+    def _search_origin(results):
+        """The search term / location these rows came from, if the input had it."""
+        for row in results:
+            term = (row.get('search_term') or '').strip()
+            if term:
+                return term, (row.get('search_location') or '').strip()
+        return 'unspecified', ''
 
     def save_to_json(self, results, filename=None):
-        """Save results to JSON file"""
-        if not filename:
-            filename = f"contact_details_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-        
+        """Save results to JSON file, alongside the CSV export"""
         if not results:
             print("No results to save")
-            return
-        
-        with open(filename, 'w', encoding='utf-8') as f:
+            return None
+
+        if filename:
+            path = Path(filename)
+        else:
+            search_term, location = self._search_origin(results)
+            directory = data_store.search_dir(search_term, location)
+            path = directory / data_store.timestamped_name("contacts").replace(".csv", ".json")
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(path, 'w', encoding='utf-8') as f:
             json.dump(results, f, indent=2, ensure_ascii=False)
-        
-        print(f"✓ Saved to {filename}")
+
+        print(f"✓ Saved to {path}")
+        return path
 
     def close(self):
         """Close the browser"""

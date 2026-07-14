@@ -88,6 +88,9 @@ ohio_districts_*.csv
 contact_details_*.csv
 google_maps_results_*.csv
 schools_results_*.json
+
+# Scraped data exports: data/<search term>/<location>/listings*.csv etc.
+data/
 generated_school_emails/
 generated_emails/
 *.log
