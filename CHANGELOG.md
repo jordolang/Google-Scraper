@@ -11,6 +11,11 @@ The bump is driven by the commit subject: `feat:` is a feature, everything else
 (`fix:`, `docs:`, `chore:`, `refactor:`…) is a fix-level change. See
 [Versioning](README.md#️-versioning) for the full rules.
 
+## [1.0a] - 2026-07-14
+
+### Changed
+- trigger version workflow (retry, no skip marker)
+
 ## [1.0] - 2026-07-13
 
 The first versioned release. Everything below already existed or landed with it;
