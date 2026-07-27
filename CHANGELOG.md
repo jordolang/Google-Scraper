@@ -11,6 +11,11 @@ The bump is driven by the commit subject: `feat:` is a feature, everything else
 (`fix:`, `docs:`, `chore:`, `refactor:`…) is a fix-level change. See
 [Versioning](README.md#️-versioning) for the full rules.
 
+## [1.1] - 2026-07-27
+
+### Added
+- industry-themed dark email templates + in-TUI pricing control
+
 ## [1.0a] - 2026-07-14
 
 ### Changed
