@@ -20,7 +20,8 @@ from textual.widgets import MarkdownViewer, Static
 from .models import Business, EmailMessage
 from .pipeline import Pipeline, make_pipeline
 from .pipeline_screens import (  # noqa: F401  re-exported for test/back-compat
-    CompleteScreen, ComposeScreen, ContactsScreen, ResultsScreen, SearchScreen, SendScreen,
+    CompleteScreen, ComposeScreen, ContactsScreen, CustomizeScreen,
+    PricingDefaultsModal, ResultsScreen, SearchScreen, SendScreen,
 )
 from .pitch_script import load_pitch_script
 
@@ -35,19 +36,31 @@ Screen { align: center top; }
     height: auto; padding: 0 1; margin: 0 0 1 0;
     color: $text-muted; background: $panel;
 }
-#home-body, #search-body, #results-body, #contacts-body, #compose-body,
+#home-body, #search-body, #results-body, #contacts-body, #compose-body, #customize-body,
 #send-body, #complete-body, #cockpit-menu-body, #sheet-body, #prep-body, #call-body {
     width: 100%; max-width: 120; padding: 1 2;
 }
 Input { margin: 0 0 1 0; }
 Input.tiny { width: 8; }
-#search-actions, #results-actions, #contacts-actions, #compose-actions, #send-actions,
-#complete-actions {
+Select { margin: 0 0 1 0; }
+#search-actions, #results-actions, #contacts-actions, #compose-actions, #customize-actions,
+#send-actions, #complete-actions {
     height: auto; padding: 1 0; align-horizontal: right;
 }
 #search-actions Button, #results-actions Button, #contacts-actions Button,
-#compose-actions Button, #send-actions Button { margin: 0 0 0 2; }
+#compose-actions Button, #customize-actions Button, #send-actions Button { margin: 0 0 0 2; }
 #complete-actions Button { margin: 0 0 0 2; }
+/* Customize screen: recipient list on the left, template + price editor right. */
+#customize-main { height: 1fr; min-height: 14; }
+#customize-recipients { width: 40; border: round $primary; margin: 0 2 0 0; }
+#customize-editor { width: 1fr; height: 1fr; }
+#pricing-modal {
+    width: 80; max-width: 90%; height: auto; max-height: 90%; padding: 1 2;
+    background: $surface; border: thick $primary;
+}
+#pd-fields { height: auto; max-height: 18; }
+#pd-actions { height: auto; padding: 1 0 0 0; align-horizontal: right; }
+#pd-actions Button { margin: 0 0 0 2; }
 #search-opts, #send-opts { height: auto; padding: 0 0 1 0; }
 #send-opts Label { padding: 1 1 0 3; }
 SelectionList { height: 1fr; min-height: 8; border: round $primary; padding: 0 1; }
@@ -136,6 +149,7 @@ class OutreachApp(App):
         self.businesses: List[Business] = []
         self.chosen: List[Business] = []
         self.contacts: List[Business] = []
+        self.recipients: List[Business] = []
         self.messages: List[EmailMessage] = []
         # cockpit shared session (created lazily to avoid import cost at startup)
         self._session = None
@@ -145,6 +159,7 @@ class OutreachApp(App):
         self.businesses = []
         self.chosen = []
         self.contacts = []
+        self.recipients = []
         self.messages = []
 
     @property

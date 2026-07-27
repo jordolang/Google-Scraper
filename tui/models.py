@@ -49,6 +49,13 @@ class Business:
     # listings CSV and skipped by the sales-call script.
     emailed: bool = False
 
+    # Chosen on the Customize screen (else "" = auto-classify at build time):
+    # which industry template to render, per-business price overrides keyed by
+    # pricing_store field, and an optional hero-image URL.
+    industry_key: str = ""
+    price_overrides: dict = field(default_factory=dict)
+    hero_image: str = ""
+
     @property
     def primary_email(self) -> str:
         return self.emails[0] if self.emails else ""

@@ -181,6 +181,7 @@ def test_app_navigates_entire_flow():
         ComposeScreen,
         CompleteScreen,
         ContactsScreen,
+        CustomizeScreen,
         ResultsScreen,
         ScraperTUI,
         SearchScreen,
@@ -209,6 +210,12 @@ def test_app_navigates_entire_flow():
             await pilot.pause()
             assert isinstance(app.screen, ContactsScreen)
 
+            await pilot.click("#compose")
+            await pilot.pause()
+            assert isinstance(app.screen, CustomizeScreen)
+            assert len(app.recipients) == 3
+
+            # Customize screen builds the messages and advances to Compose.
             await pilot.click("#compose")
             await pilot.pause()
             assert isinstance(app.screen, ComposeScreen)
@@ -294,6 +301,7 @@ def test_hotkeys_advance_the_whole_workflow():
         ComposeScreen,
         CompleteScreen,
         ContactsScreen,
+        CustomizeScreen,
         ResultsScreen,
         ScraperTUI,
         SearchScreen,
@@ -317,11 +325,16 @@ def test_hotkeys_advance_the_whole_workflow():
             await pilot.pause()
             assert isinstance(app.screen, ContactsScreen)
 
-            # c: compose. ctrl+s: on to sending.
+            # c: customize (industry + pricing). ctrl+s: build + compose.
             await pilot.press("c")
+            await pilot.pause()
+            assert isinstance(app.screen, CustomizeScreen)
+
+            await pilot.press("ctrl+s")
             await pilot.pause()
             assert isinstance(app.screen, ComposeScreen)
 
+            # ctrl+s again: on to sending.
             await pilot.press("ctrl+s")
             await pilot.pause()
             assert isinstance(app.screen, SendScreen)
@@ -459,6 +472,52 @@ def test_app_requires_search_term():
             # Stays on the search screen when nothing was entered.
             assert isinstance(app.screen, SearchScreen)
             assert app.businesses == []
+
+    asyncio.run(scenario())
+
+
+# --------------------------------------------------------------------------- #
+#  industry template + pricing wiring
+# --------------------------------------------------------------------------- #
+def test_build_message_honours_industry_kwarg():
+    pipeline = DemoPipeline()
+    b = Business(name="Bella Salon", category="Hair salon", address="1 St, Dublin, OH",
+                 emails=["bella@example.com"])
+    msg = pipeline.build_message(b, industry_key="beauty_personal_care")
+    assert "salons & studios" in msg.html  # rendered the beauty template
+
+
+def test_customize_screen_preselects_industry_and_applies_price_override():
+    from tui.app import ComposeScreen, CustomizeScreen, ScraperTUI
+    from textual.widgets import Select
+
+    async def scenario():
+        app = ScraperTUI(pipeline=make_pipeline(demo=True), demo=True)
+        async with app.run_test(size=(120, 44)) as pilot:
+            # Walk to the contacts screen, then into Customize.
+            await pilot.pause()
+            app.screen.query_one("#field").value = "electricians"
+            await pilot.press("enter")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            await pilot.click("#scan")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            await pilot.click("#compose")  # contacts -> customize
+            await pilot.pause()
+            assert isinstance(app.screen, CustomizeScreen)
+
+            # The demo businesses are electricians -> trades template preselected.
+            sel = app.screen.query_one("#industry", Select)
+            assert sel.value == "home_trade_services"
+
+            # Override this business's Launchpad email price, then advance.
+            app.screen.query_one("#price-launchpad_sale").value = "$275"
+            await pilot.click("#compose")  # customize -> compose (builds messages)
+            await pilot.pause()
+            assert isinstance(app.screen, ComposeScreen)
+            assert "$275" in app.messages[0].html
+            assert "home-service pros" in app.messages[0].html
 
     asyncio.run(scenario())
 
