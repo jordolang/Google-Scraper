@@ -12,28 +12,73 @@ from datetime import datetime
 from urllib.parse import urlparse
 
 import data_store
+import industries
+import pricing_store
+
+# Default directory holding the per-industry templates.
+TEMPLATES_DIR = "email_templates"
+
+# Substituted for {{HERO_IMAGE}} when no hero URL is supplied. A transparent 1x1
+# GIF keeps email clients from firing a request at a literal empty URL while the
+# industry gradient shows through underneath.
+_TRANSPARENT_PX = "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=="
 
 
 class EmailGenerator:
-    def __init__(self, template_path, output_dir="generated_emails", from_email="jordan@jlang.dev"):
+    def __init__(self, template_path=None, output_dir="generated_emails",
+                 from_email="jordan@jlang.dev", templates_dir=TEMPLATES_DIR):
         """
         Initialize the email generator
-        
+
+        Two modes:
+
+        * **Legacy single-template** — pass ``template_path`` (e.g. the school
+          flow, or the old ``email_template.html``). That one file is loaded
+          eagerly and used for every email, exactly as before.
+        * **Per-industry** — leave ``template_path`` as ``None``. Each email is
+          rendered from ``templates_dir/<industry>.html``, chosen by
+          auto-classification or an explicit ``industry_key``.
+
         Args:
-            template_path: Path to the HTML email template
+            template_path: Optional path to a single HTML template. When given,
+                it overrides per-industry selection (backward compatible).
             output_dir: Directory to save generated emails
             from_email: Sender email address
+            templates_dir: Directory of per-industry templates (per-industry mode)
         """
         self.template_path = template_path
         self.output_dir = output_dir
         self.from_email = from_email
-        
+        self.templates_dir = templates_dir
+        self._template_cache = {}
+
         # Create output directory if it doesn't exist
         Path(output_dir).mkdir(exist_ok=True)
-        
-        # Load template
-        with open(template_path, 'r', encoding='utf-8') as f:
-            self.template = f.read()
+
+        # Eagerly load the single template only in legacy mode.
+        self.template = None
+        if template_path is not None:
+            with open(template_path, 'r', encoding='utf-8') as f:
+                self.template = f.read()
+
+    def _load_industry_template(self, industry_key):
+        """Load (and cache) the template file for an industry, general fallback."""
+        if industry_key in self._template_cache:
+            return self._template_cache[industry_key]
+        industry = industries.get(industry_key)
+        path = Path(self.templates_dir) / industry.template_filename
+        if not path.exists():
+            # Fall back to the general template rather than crashing a batch.
+            path = Path(self.templates_dir) / industries.GENERAL.template_filename
+        html = path.read_text(encoding='utf-8')
+        self._template_cache[industry_key] = html
+        return html
+
+    def industry_for(self, business_data):
+        """Classify a business row into an industry key."""
+        return industries.classify(
+            business_data.get('category', ''), business_data.get('name', '')
+        )
     
     def clean_text(self, text):
         """Clean and normalize text data"""
@@ -106,34 +151,45 @@ class EmailGenerator:
     
     def generate_website_note(self, website):
         """Generate note about current website status"""
+        # Dark-themed to match the industry templates. Kept neutral (no industry
+        # accent) so it reads well inside every template.
         if self.has_website(website):
             return """
-            <div style="background-color: #fff3cd; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #ffc107;">
-                <p style="margin: 0; color: #856404; font-size: 15px;">
-                    <strong>💡 Already Have a Website?</strong><br>
-                    I noticed you have an existing website. I can help modernize it with improved design, faster performance, 
-                    better SEO, and enhanced functionality to help you reach more customers.
-                </p>
-            </div>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#141418;border:1px solid #27272a;border-left:3px solid #f59e0b;border-radius:10px;">
+              <tr><td style="padding:16px 18px;">
+                <div style="font-size:15px;font-weight:700;color:#fafafa;padding-bottom:6px;">💡 Already have a website?</div>
+                <div style="font-size:14px;line-height:1.65;color:#a1a1aa;">
+                  I noticed you have one already. I can modernize it — sharper design, faster load times, stronger SEO and features that turn more visitors into customers.
+                </div>
+              </td></tr>
+            </table>
             """
         else:
             return """
-            <div style="background-color: #d1ecf1; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #17a2b8;">
-                <p style="margin: 0; color: #0c5460; font-size: 15px;">
-                    <strong>🌐 Ready for Your First Website?</strong><br>
-                    I noticed you don't currently have a website. In today's market, businesses with a professional 
-                    web presence see up to 70% more customer engagement. Let's change that!
-                </p>
-            </div>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#141418;border:1px solid #27272a;border-left:3px solid #38bdf8;border-radius:10px;">
+              <tr><td style="padding:16px 18px;">
+                <div style="font-size:15px;font-weight:700;color:#fafafa;padding-bottom:6px;">🌐 Ready for your first website?</div>
+                <div style="font-size:14px;line-height:1.65;color:#a1a1aa;">
+                  It looks like you don't have one yet. Businesses with a professional web presence see up to 70% more customer engagement — let's change that.
+                </div>
+              </td></tr>
+            </table>
             """
     
-    def generate_email(self, business_data):
+    def generate_email(self, business_data, *, industry_key=None, pricing=None,
+                       hero_image=""):
         """
         Generate a personalized email for a business
-        
+
         Args:
             business_data: Dictionary containing business information
-            
+            industry_key: Force a specific industry template. When ``None`` in
+                per-industry mode, the business is auto-classified. Ignored in
+                legacy single-template mode.
+            pricing: Optional ``{field: price}`` dict (e.g. a per-business
+                override). Falls back to the industry's stored pricing.
+            hero_image: Optional hero-image URL for ``{{HERO_IMAGE}}``.
+
         Returns:
             Tuple of (email_html, filename, recipient_email)
         """
@@ -175,8 +231,15 @@ class EmailGenerator:
         if email and '@' in email:
             contact_info += f'<p><strong>✉️ Email:</strong> {email}</p>'
         
-        # Replace placeholders in template
-        email_html = self.template
+        # Choose the template. Legacy mode (an explicit template_path) always
+        # uses the single loaded template; otherwise pick per-industry.
+        if self.template_path is not None and industry_key is None:
+            email_html = self.template
+            resolved_industry = None
+        else:
+            resolved_industry = industry_key or self.industry_for(business_data)
+            email_html = self._load_industry_template(resolved_industry)
+
         replacements = {
             '{{BUSINESS_NAME}}': business_name,
             '{{CATEGORY}}': category,
@@ -185,9 +248,17 @@ class EmailGenerator:
             '{{CURRENT_WEBSITE_NOTE}}': website_note,
             '{{RATING_INFO}}': rating_info,
             '{{CONTACT_INFO}}': contact_info,
-            '{{FROM_EMAIL}}': self.from_email
+            '{{FROM_EMAIL}}': self.from_email,
+            '{{HERO_IMAGE}}': hero_image or _TRANSPARENT_PX,
         }
-        
+
+        # Pricing tokens: an explicit override wins, else the industry's stored
+        # prices. Harmless no-op on legacy templates that lack the tokens.
+        price_row = pricing or pricing_store.prices_for(
+            resolved_industry or industries.GENERAL_KEY
+        )
+        replacements.update(pricing_store.pricing_tokens(price_row))
+
         for placeholder, value in replacements.items():
             email_html = email_html.replace(placeholder, value)
         

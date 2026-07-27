@@ -12,14 +12,17 @@ from typing import List
 from textual import on, work
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
-from textual.screen import Screen
+from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.screen import ModalScreen, Screen
 from textual.widgets import (
     Button, Checkbox, Footer, Header, Input, Label, OptionList,
-    ProgressBar, RichLog, Rule, SelectionList, Static, TextArea,
+    ProgressBar, RichLog, Rule, Select, SelectionList, Static, TextArea,
 )
 from textual.widgets.option_list import Option
 from textual.widgets.selection_list import Selection
+
+import industries
+import pricing_store
 
 from .models import Business, EmailMessage, ScanEvent
 from .pipeline import Pipeline
@@ -478,13 +481,313 @@ class ContactsScreen(Screen):
         if not recipients:
             summary.update("[yellow]Select at least one business that has an email address.[/yellow]")
             return
+        # Pick industry template + pricing on the Customize screen; it builds the
+        # messages and advances to Compose.
+        self.app.recipients = recipients  # type: ignore[attr-defined]
+        self.app.push_screen(CustomizeScreen())
+
+
+# --------------------------------------------------------------------------- #
+#  Pricing defaults modal – edit the persisted per-industry price table
+# --------------------------------------------------------------------------- #
+class PricingDefaultsModal(ModalScreen):
+    """Edit the per-industry default prices and persist them to pricing.json.
+
+    These are the starting prices every business in an industry inherits. A
+    business's per-recipient tweaks (on the Customize screen) override them.
+    Dismisses ``True`` when prices were saved, ``False`` on cancel.
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel"),
+        Binding("ctrl+s", "save", "Save"),
+    ]
+
+    def __init__(self) -> None:
+        super().__init__()
+        # Working copies of the whole table + hero URLs; saved together on Save.
+        self._table = pricing_store.load_pricing()
+        self._heroes = pricing_store.load_heroes()
+        self._industry = industries.REGISTRY[0].key
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="pricing-modal"):
+            yield Static("💲  [b]Default prices per industry[/b]", classes="title")
+            yield Static(
+                "Pick an industry, edit its package prices, Save. Stored in "
+                "pricing.json — no config file to touch.",
+                classes="hint",
+            )
+            yield Label("Industry")
+            yield Select(
+                industries.choices(), value=self._industry,
+                allow_blank=False, id="pd-industry",
+            )
+            with VerticalScroll(id="pd-fields"):
+                for fkey in pricing_store.PACKAGE_FIELDS:
+                    yield Label(pricing_store.FIELD_LABELS[fkey])
+                    yield Input(id=f"pd-{fkey}")
+                yield Label("Hero image URL (optional)")
+                yield Input(placeholder="https://…  self-host & paste later", id="pd-hero")
+            with Horizontal(id="pd-actions"):
+                yield Button("Cancel", id="pd-cancel")
+                yield Button("Save", variant="success", id="pd-save")
+
+    def on_mount(self) -> None:
+        self._load_fields(self._industry)
+
+    def _load_fields(self, industry_key: str) -> None:
+        row = pricing_store.prices_for(industry_key, store=self._table)
+        for fkey in pricing_store.PACKAGE_FIELDS:
+            self.query_one(f"#pd-{fkey}", Input).value = row.get(fkey, "")
+        self.query_one("#pd-hero", Input).value = self._heroes.get(industry_key, "")
+
+    def _stash_fields(self, industry_key: str) -> None:
+        row = dict(self._table.get(industry_key, {}))
+        for fkey in pricing_store.PACKAGE_FIELDS:
+            row[fkey] = self.query_one(f"#pd-{fkey}", Input).value.strip()
+        self._table[industry_key] = row
+        hero = self.query_one("#pd-hero", Input).value.strip()
+        if hero:
+            self._heroes[industry_key] = hero
+        else:
+            self._heroes.pop(industry_key, None)
+
+    @on(Select.Changed, "#pd-industry")
+    def _switch_industry(self, event: Select.Changed) -> None:
+        if event.value == self._industry:
+            return
+        self._stash_fields(self._industry)  # keep edits to the one we're leaving
+        self._industry = str(event.value)
+        self._load_fields(self._industry)
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
+
+    def action_save(self) -> None:
+        self._save()
+
+    @on(Button.Pressed, "#pd-cancel")
+    def _cancel(self) -> None:
+        self.dismiss(False)
+
+    @on(Button.Pressed, "#pd-save")
+    def _save(self) -> None:
+        self._stash_fields(self._industry)
+        pricing_store.save_pricing(self._table, heroes=self._heroes)
+        self.dismiss(True)
+
+
+# --------------------------------------------------------------------------- #
+#  Customize screen – pick industry template + prices before composing
+# --------------------------------------------------------------------------- #
+class CustomizeScreen(Screen):
+    """Per-recipient industry template + package pricing, before Compose.
+
+    Each recipient gets an auto-detected industry (overridable via a dropdown),
+    editable prices (seeded from that industry's saved defaults, overlaid by any
+    per-business edits) and an optional hero-image URL. Advancing renders every
+    email from these choices and moves on to Compose for final wording tweaks.
+    """
+
+    BINDINGS = [
+        Binding("ctrl+s", "compose", "^s  Compose emails →"),
+        Binding("escape", "app.pop_screen", "Back"),
+    ]
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._current = 0
+        self._current_industry = industries.GENERAL_KEY
+        self._ready = False
+        self._loading = False
+        # Saved per-industry defaults, reloaded whenever the modal writes them.
+        self._store = pricing_store.load_pricing()
+        self._heroes = pricing_store.load_heroes()
+
+    def compose(self) -> ComposeResult:
+        yield Header(show_clock=True)
+        with Vertical(id="customize-body"):
+            yield Static("🎛️  [b]Customize & price[/b]", classes="title")
+            yield Static(
+                "Pick each business's industry template and set its prices. "
+                "Prices start from the saved industry defaults; edit them here to "
+                "tailor a single business. These drive how each email renders.",
+                classes="hint",
+            )
+            with Horizontal(id="customize-main"):
+                yield OptionList(id="customize-recipients")
+                with VerticalScroll(id="customize-editor"):
+                    yield Label("Industry template")
+                    yield Select(
+                        industries.choices(), allow_blank=False,
+                        value=industries.GENERAL_KEY, id="industry",
+                    )
+                    yield Label("Hero image URL (optional — blank uses the industry default)")
+                    yield Input(placeholder="https://…  override this one business", id="hero-image")
+                    yield Static(
+                        "[b]Package prices for this business[/b]", classes="hint",
+                    )
+                    for fkey in pricing_store.PACKAGE_FIELDS:
+                        yield Label(pricing_store.FIELD_LABELS[fkey])
+                        yield Input(id=f"price-{fkey}")
+            yield Static(
+                "[b]ctrl+s[/b] compose emails →    [b]esc[/b] back to contacts    "
+                "[dim]changing prices here overrides this business only[/dim]",
+                classes="keyhints",
+            )
+            with Horizontal(id="customize-actions"):
+                yield Button("← Back", id="back")
+                yield Button("Edit industry defaults…", id="defaults")
+                yield Button("Compose emails →", variant="primary", id="compose")
+        yield Footer()
+
+    def action_compose(self) -> None:
+        self._go_compose()
+
+    def on_mount(self) -> None:
+        recipients: List[Business] = self.app.recipients  # type: ignore[attr-defined]
+        ol = self.query_one("#customize-recipients", OptionList)
+        ol.clear_options()
+        for b in recipients:
+            ind = industries.get(b.industry_key or industries.classify(b.category, b.name))
+            ol.add_option(Option(f"{b.name or '(unnamed)'}  ·  {ind.label}"))
+        self._current = 0
+        self._load(0)
+        self._ready = True
+        ol.focus()
+        if recipients:
+            ol.highlighted = 0
+
+    # -- state -------------------------------------------------------------- #
+    def _defaults_for(self, industry_key: str) -> dict:
+        return pricing_store.prices_for(industry_key, store=self._store)
+
+    def _load(self, index: int) -> None:
+        recipients: List[Business] = self.app.recipients  # type: ignore[attr-defined]
+        if not (0 <= index < len(recipients)):
+            return
+        self._loading = True
+        b = recipients[index]
+        ind = b.industry_key or industries.classify(b.category, b.name)
+        self._current_industry = ind
+        self.query_one("#industry", Select).value = ind
+        self.query_one("#hero-image", Input).value = b.hero_image
+        merged = {**self._defaults_for(ind), **b.price_overrides}
+        for fkey in pricing_store.PACKAGE_FIELDS:
+            self.query_one(f"#price-{fkey}", Input).value = merged.get(fkey, "")
+        self._loading = False
+
+    def _save(self, index: int) -> None:
+        recipients: List[Business] = self.app.recipients  # type: ignore[attr-defined]
+        if not (0 <= index < len(recipients)):
+            return
+        b = recipients[index]
+        ind = self._current_industry
+        b.industry_key = ind
+        b.hero_image = self.query_one("#hero-image", Input).value.strip()
+        defaults = self._defaults_for(ind)
+        overrides = {}
+        for fkey in pricing_store.PACKAGE_FIELDS:
+            val = self.query_one(f"#price-{fkey}", Input).value.strip()
+            if val and val != defaults.get(fkey):
+                overrides[fkey] = val
+        b.price_overrides = overrides
+
+    def _refresh_recipient_label(self, index: int) -> None:
+        recipients: List[Business] = self.app.recipients  # type: ignore[attr-defined]
+        b = recipients[index]
+        ind = industries.get(b.industry_key or industries.classify(b.category, b.name))
+        ol = self.query_one("#customize-recipients", OptionList)
+        # OptionList has no in-place edit; rebuild the single changed label cheaply.
+        options = [
+            Option(
+                f"{rb.name or '(unnamed)'}  ·  "
+                f"{industries.get(rb.industry_key or industries.classify(rb.category, rb.name)).label}"
+            )
+            for rb in recipients
+        ]
+        highlighted = ol.highlighted
+        ol.clear_options()
+        for opt in options:
+            ol.add_option(opt)
+        ol.highlighted = highlighted
+
+    @on(OptionList.OptionHighlighted, "#customize-recipients")
+    def _switch(self, event: OptionList.OptionHighlighted) -> None:
+        if not self._ready or event.option_index is None:
+            return
+        if event.option_index == self._current:
+            return
+        self._save(self._current)
+        self._current = event.option_index
+        self._load(self._current)
+
+    @on(Select.Changed, "#industry")
+    def _industry_changed(self, event: Select.Changed) -> None:
+        if self._loading or not self._ready:
+            return
+        new_ind = str(event.value)
+        if new_ind == self._current_industry:
+            return
+        recipients: List[Business] = self.app.recipients  # type: ignore[attr-defined]
+        b = recipients[self._current]
+        # Preserve deliberate per-business price edits across an industry switch,
+        # then repopulate the inputs from the new industry's defaults.
+        old_defaults = self._defaults_for(self._current_industry)
+        overrides = {}
+        for fkey in pricing_store.PACKAGE_FIELDS:
+            val = self.query_one(f"#price-{fkey}", Input).value.strip()
+            if val and val != old_defaults.get(fkey):
+                overrides[fkey] = val
+        b.price_overrides = overrides
+        b.industry_key = new_ind
+        self._current_industry = new_ind
+        merged = {**self._defaults_for(new_ind), **overrides}
+        for fkey in pricing_store.PACKAGE_FIELDS:
+            self.query_one(f"#price-{fkey}", Input).value = merged.get(fkey, "")
+        self._refresh_recipient_label(self._current)
+
+    @on(Button.Pressed, "#back")
+    def _back(self) -> None:
+        self._save(self._current)
+        self.app.pop_screen()
+
+    @on(Button.Pressed, "#defaults")
+    def _edit_defaults(self) -> None:
+        self._save(self._current)
+        self.app.push_screen(PricingDefaultsModal(), self._defaults_saved)
+
+    def _defaults_saved(self, saved: bool) -> None:
+        if not saved:
+            return
+        # Reload the persisted table and re-render the current recipient's inputs
+        # so any non-overridden prices reflect the new defaults.
+        self._store = pricing_store.load_pricing()
+        self._heroes = pricing_store.load_heroes()
+        self._load(self._current)
+
+    @on(Button.Pressed, "#compose")
+    def _go_compose(self) -> None:
+        self._save(self._current)
+        recipients: List[Business] = self.app.recipients  # type: ignore[attr-defined]
         pipeline: Pipeline = self.app.pipeline  # type: ignore[attr-defined]
         messages: List[EmailMessage] = []
         for b in recipients:
+            prices = {**self._defaults_for(b.industry_key), **b.price_overrides}
+            # Per-business hero wins; otherwise the industry's saved hero URL.
+            hero = b.hero_image or pricing_store.hero_for(b.industry_key, self._heroes)
             try:
-                messages.append(pipeline.build_message(b))
-            except Exception as exc:
-                summary.update(f"[red]Failed to build email for {b.name}: {exc}[/red]")
+                messages.append(
+                    pipeline.build_message(
+                        b, industry_key=b.industry_key or None,
+                        pricing=prices, hero_image=hero,
+                    )
+                )
+            except Exception as exc:  # pragma: no cover - runtime dependent
+                self.query_one("#customize-body", Vertical).mount(
+                    Static(f"[red]Failed to build email for {b.name}: {exc}[/red]")
+                )
                 return
         self.app.messages = messages  # type: ignore[attr-defined]
         self.app.push_screen(ComposeScreen())

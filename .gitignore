@@ -54,6 +54,9 @@ chromedriver.exe
 !school_email_template.html
 !requirements.txt
 !README.md
+# Industry email templates are source, not output — keep them tracked.
+!email_templates/
+!email_templates/*.html
 
 # Generated Emails (optional - uncomment to track)
 # generated_emails/*.html

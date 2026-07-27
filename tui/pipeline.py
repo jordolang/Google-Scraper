@@ -53,9 +53,12 @@ class Pipeline:
         template_path: str = "email_template.html",
         headless: bool = True,
         data_root: Optional[Path] = None,
+        templates_dir: str = "email_templates",
     ) -> None:
         self.from_email = from_email
         self.template_path = template_path
+        # Directory of per-industry templates the email generator renders from.
+        self.templates_dir = templates_dir
         self.headless = headless
         # Where CSV exports land; ``None`` means data_store's default data/ dir.
         self.data_root = data_root
@@ -211,7 +214,14 @@ class Pipeline:
         """Look up phone numbers for businesses the website scan drew a blank on."""
         raise NotImplementedError
 
-    def build_message(self, business: Business) -> EmailMessage:
+    def build_message(
+        self,
+        business: Business,
+        *,
+        industry_key: Optional[str] = None,
+        pricing: Optional[dict] = None,
+        hero_image: str = "",
+    ) -> EmailMessage:
         raise NotImplementedError
 
     def send(
@@ -407,16 +417,29 @@ class LivePipeline(Pipeline):
                 on_event(ScanEvent(idx, total, name, status="skipped"))
             time.sleep(1)
 
-    def build_message(self, business: Business) -> EmailMessage:
+    def build_message(
+        self,
+        business: Business,
+        *,
+        industry_key: Optional[str] = None,
+        pricing: Optional[dict] = None,
+        hero_image: str = "",
+    ) -> EmailMessage:
         from generate_emails import EmailGenerator
         from send_emails import EmailSender
 
+        # Per-industry mode: no single template_path, render from templates_dir.
         generator = EmailGenerator(
-            template_path=self.template_path,
             output_dir="generated_emails",
             from_email=self.from_email,
+            templates_dir=self.templates_dir,
         )
-        html, _filename, email = generator.generate_email(business.to_generator_row())
+        html, _filename, email = generator.generate_email(
+            business.to_generator_row(),
+            industry_key=industry_key or (business.industry_key or None),
+            pricing=pricing,
+            hero_image=hero_image or business.hero_image,
+        )
         subject = EmailSender(from_email=self.from_email).generate_subject_line(
             business.name, business.category
         )
@@ -593,19 +616,46 @@ class DemoPipeline(Pipeline):
         self._safe_export_contacts(businesses, progress)
         return list(businesses)
 
-    def build_message(self, business: Business) -> EmailMessage:
+    def build_message(
+        self,
+        business: Business,
+        *,
+        industry_key: Optional[str] = None,
+        pricing: Optional[dict] = None,
+        hero_image: str = "",
+    ) -> EmailMessage:
         subject = f"Transform {business.name}'s Online Presence"
-        location = business.address.split(",")[1].strip() if "," in business.address else "your area"
-        html = (
-            "<html><body style='font-family:sans-serif'>"
-            f"<p>Hi {business.name},</p>"
-            f"<p>I came across {business.name} while looking at {business.category} "
-            f"businesses in {location} and wanted to reach out about your website.</p>"
-            "<p>I build fast, modern sites for local businesses and would love to help "
-            f"{business.name} stand out online.</p>"
-            "<p>Best,<br>Jordan Lang<br>jlang.dev</p>"
-            "</body></html>"
-        )
+        # Render the real dark industry template so the demo previews exactly what
+        # a live run produces. Falls back to plain HTML if a template is missing.
+        try:
+            from generate_emails import EmailGenerator
+
+            generator = EmailGenerator(
+                output_dir="generated_emails",
+                from_email=self.from_email,
+                templates_dir=self.templates_dir,
+            )
+            html, _filename, _email = generator.generate_email(
+                business.to_generator_row(),
+                industry_key=industry_key or (business.industry_key or None),
+                pricing=pricing,
+                hero_image=hero_image or business.hero_image,
+            )
+        except OSError:
+            location = (
+                business.address.split(",")[1].strip()
+                if "," in business.address else "your area"
+            )
+            html = (
+                "<html><body style='font-family:sans-serif'>"
+                f"<p>Hi {business.name},</p>"
+                f"<p>I came across {business.name} while looking at {business.category} "
+                f"businesses in {location} and wanted to reach out about your website.</p>"
+                "<p>I build fast, modern sites for local businesses and would love to help "
+                f"{business.name} stand out online.</p>"
+                "<p>Best,<br>Jordan Lang<br>jlang.dev</p>"
+                "</body></html>"
+            )
         return EmailMessage(
             business=business,
             to_email=business.primary_email,
@@ -650,6 +700,7 @@ def make_pipeline(
     template_path: str = "email_template.html",
     headless: bool = True,
     data_root: Optional[Path] = None,
+    templates_dir: str = "email_templates",
 ) -> Pipeline:
     """Factory returning the appropriate pipeline implementation.
 
@@ -668,4 +719,5 @@ def make_pipeline(
         template_path=template_path,
         headless=headless,
         data_root=data_root,
+        templates_dir=templates_dir,
     )
