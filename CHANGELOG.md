@@ -11,6 +11,12 @@ The bump is driven by the commit subject: `feat:` is a feature, everything else
 (`fix:`, `docs:`, `chore:`, `refactor:`…) is a fix-level change. See
 [Versioning](README.md#️-versioning) for the full rules.
 
+## [1.2] - 2026-08-07
+
+### Added
+- preview the composed email in a browser window from the TUI
+- load SMTP credentials from a .env file
+
 ## [1.1] - 2026-07-27
 
 ### Added
