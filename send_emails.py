@@ -15,6 +15,24 @@ import time
 import sys
 
 
+def load_dotenv(path=".env"):
+    """Load KEY=VALUE pairs from a .env file into os.environ.
+
+    Existing environment variables win, so an inline `EMAIL_PASSWORD=... python
+    send_emails.py` still overrides the file.
+    """
+    env_file = Path(path)
+    if not env_file.exists():
+        return
+
+    for line in env_file.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
 class EmailSender:
     def __init__(self, from_email="jordan@jlang.dev", smtp_server=None, smtp_port=None,
                  smtp_username=None):
@@ -389,6 +407,7 @@ def main():
     #
     #   export SMTP_USERNAME="jordantlang@icloud.com"
     #   export EMAIL_PASSWORD="xxxx-xxxx-xxxx-xxxx"
+    load_dotenv()
     hardwired_password = os.environ.get("EMAIL_PASSWORD")
     smtp_username = os.environ.get("SMTP_USERNAME", from_email)
 
