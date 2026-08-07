@@ -6,7 +6,12 @@ is unchanged. Each screen pops back to the screen beneath it on Esc.
 
 from __future__ import annotations
 
+import os
+import re
+import tempfile
+import webbrowser
 from dataclasses import dataclass
+from pathlib import Path
 from typing import List
 
 from textual import on, work
@@ -26,6 +31,27 @@ import pricing_store
 
 from .models import Business, EmailMessage, ScanEvent
 from .pipeline import Pipeline
+
+
+def open_html_preview(html: str, label: str = "email") -> Path:
+    """Write ``html`` to a temp file and pop it open in the default browser.
+
+    Returns the file that was written. The file is deliberately left behind —
+    the browser reads it after we return, so deleting it here would race the
+    window we just opened. Kept at module level so tests can patch this one
+    name and never spawn a real browser.
+    """
+    slug = re.sub(r"[^A-Za-z0-9]+", "-", label).strip("-").lower() or "email"
+    fd, name = tempfile.mkstemp(prefix=f"email-preview-{slug}-", suffix=".html")
+    path = Path(name)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(html)
+    # new=1 asks for a window rather than a tab, so the preview arrives as a
+    # popup instead of hiding behind whatever the browser was already showing.
+    if not webbrowser.open(path.resolve().as_uri(), new=1):
+        # Headless box, no default browser — say so rather than claiming success.
+        raise RuntimeError(f"no browser available; the HTML is at {path}")
+    return path
 
 
 @dataclass
@@ -802,6 +828,7 @@ class ComposeScreen(Screen):
     # Letter keys would be swallowed by the subject / body editors, so the
     # advance key is a chord here.
     BINDINGS = [
+        Binding("ctrl+p", "preview", "^p  Preview in browser"),
         Binding("ctrl+s", "send", "^s  Send emails →"),
         Binding("escape", "app.pop_screen", "Back"),
     ]
@@ -830,16 +857,23 @@ class ComposeScreen(Screen):
                     yield Label("Message (HTML)")
                     yield TextArea(id="body-field")
             yield Static(
-                "[b]ctrl+s[/b] send emails →    [b]esc[/b] back to contacts",
+                "[b]ctrl+p[/b] preview in browser    [b]ctrl+s[/b] send emails →    "
+                "[b]esc[/b] back to contacts",
                 classes="keyhints",
             )
             with Horizontal(id="compose-actions"):
                 yield Button("← Back", id="back")
+                preview = Button("👁 Preview in browser", id="preview")
+                preview.tooltip = "Open this email's HTML in a browser window, as the recipient sees it"
+                yield preview
                 yield Button("Send emails →", variant="primary", id="send")
         yield Footer()
 
     def action_send(self) -> None:
         self._go_send()
+
+    def action_preview(self) -> None:
+        self._preview()
 
     def on_mount(self) -> None:
         messages: List[EmailMessage] = self.app.messages  # type: ignore[attr-defined]
@@ -885,6 +919,40 @@ class ComposeScreen(Screen):
     def _back(self) -> None:
         self._save(self._current)
         self.app.pop_screen()
+
+    @on(Button.Pressed, "#preview")
+    def _preview(self) -> None:
+        """Render the email being edited in a real browser window."""
+        # Flush the editors first, or the preview shows the pre-edit HTML.
+        self._save(self._current)
+        messages: List[EmailMessage] = self.app.messages  # type: ignore[attr-defined]
+        if not (0 <= self._current < len(messages)):
+            self.notify("Nothing to preview yet.", severity="warning")
+            return
+        message = messages[self._current]
+        if not message.html.strip():
+            self.notify("This email has no HTML body to preview.", severity="warning")
+            return
+        self._open_preview(message)
+
+    @work(thread=True)
+    def _open_preview(self, message: EmailMessage) -> None:
+        """Launching a browser can block for a moment; keep it off the UI thread.
+
+        The toast goes through ``app.notify``, not ``self.notify``: the user may
+        have left this screen while the browser was still starting up, and the
+        app outlives it.
+        """
+        try:
+            path = open_html_preview(message.html, message.business.name or "email")
+        except Exception as exc:  # pragma: no cover - OS/browser dependent
+            self.app.call_from_thread(
+                self.app.notify, f"Could not open preview: {exc}", severity="error"
+            )
+            return
+        self.app.call_from_thread(
+            self.app.notify, f"Preview opened in your browser — {path}"
+        )
 
     @on(Button.Pressed, "#send")
     def _go_send(self) -> None:

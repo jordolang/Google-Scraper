@@ -6,6 +6,7 @@ and offline — no browser, network, or SMTP credentials required.
 """
 
 import asyncio
+from pathlib import Path
 from unittest import mock
 
 import pytest
@@ -403,6 +404,78 @@ def test_phone_lookup_from_the_contacts_screen():
             assert any("via google" in str(o.prompt) for o in options)
             # ...and exported.
             assert app.pipeline.last_contacts_csv.exists()
+
+    asyncio.run(scenario())
+
+
+def test_open_html_preview_writes_utf8_and_opens_a_browser_window():
+    """The preview helper drops the HTML on disk and hands the browser a file:// URL."""
+    from tui.pipeline_screens import open_html_preview
+
+    html = "<html><body><p>Hi ✉ Bright Spark ★</p></body></html>"
+    with mock.patch("tui.pipeline_screens.webbrowser.open") as opened:
+        path = open_html_preview(html, "Bright Spark Electric")
+
+    assert path.exists()
+    assert path.suffix == ".html"
+    assert "bright-spark-electric" in path.name
+    # Non-ASCII survives the round trip; the templates are full of it.
+    assert path.read_text(encoding="utf-8") == html
+    url, = opened.call_args.args
+    assert url == path.resolve().as_uri()
+    # new=1 asks for a window rather than a tab.
+    assert opened.call_args.kwargs["new"] == 1
+    path.unlink()
+
+
+def test_compose_screen_previews_the_edited_html_in_a_browser():
+    """The preview button flushes pending edits, then opens the current email."""
+    from tui.app import ComposeScreen, ContactsScreen, CustomizeScreen, ScraperTUI
+
+    async def scenario():
+        app = ScraperTUI(pipeline=make_pipeline(demo=True), demo=True)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            app.screen.query_one("#field").value = "electricians"
+            await pilot.click("#go")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            # Scan for real (demo data) so the contacts have email addresses.
+            await pilot.click("#scan")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert isinstance(app.screen, ContactsScreen)
+            await pilot.click("#compose")
+            await pilot.pause()
+            assert isinstance(app.screen, CustomizeScreen)
+            await pilot.click("#compose")
+            await pilot.pause()
+            assert isinstance(app.screen, ComposeScreen)
+
+            # An unsaved edit in the body editor must reach the preview.
+            edited = "<html><body><p>Edited in the TUI ✉</p></body></html>"
+            app.screen.query_one("#body-field").text = edited
+
+            with mock.patch("tui.pipeline_screens.open_html_preview") as opener:
+                opener.return_value = Path("preview.html")
+                await pilot.click("#preview")
+                await app.workers.wait_for_complete()
+                await pilot.pause()
+
+            opener.assert_called_once()
+            assert opener.call_args.args[0] == edited
+            assert app.messages[0].html == edited
+
+            # Leaving the screen while the browser is still starting: the worker
+            # comes back to post its toast against a screen that is gone.
+            with mock.patch("tui.pipeline_screens.open_html_preview") as opener:
+                opener.return_value = Path("preview.html")
+                await pilot.click("#preview")
+                await pilot.click("#back")
+                await app.workers.wait_for_complete()
+                await pilot.pause()
+            assert not isinstance(app.screen, ComposeScreen)
 
     asyncio.run(scenario())
 
