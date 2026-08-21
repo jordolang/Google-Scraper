@@ -228,21 +228,29 @@ class ContactScraper:
         return list(set(filtered))  # Remove duplicates
 
     def extract_phones(self, text):
-        """Extract phone numbers from text"""
-        phones = []
+        """Extract phone numbers from text, one entry per real number.
+
+        The two patterns overlap: the international one also matches the tail
+        of a US number, so "(614) 555-0142" came back as both itself and
+        "614) 555-0142". De-duplicating on the text kept both, and the broken
+        one could end up first — i.e. the number on the call sheet. Match on
+        the digits instead, keep the best-punctuated form of each, and return
+        them in a stable order (``set`` made the CSV vary between runs).
+        """
+        found = {}
         for pattern in self.phone_patterns:
-            matches = pattern.findall(text)
-            phones.extend(matches)
-        
-        # Clean and deduplicate
-        cleaned = []
-        for phone in phones:
-            # Remove common prefixes and clean
-            phone = phone.strip()
-            if len(phone) >= 10:  # Minimum valid phone length
-                cleaned.append(phone)
-        
-        return list(set(cleaned))
+            for match in pattern.findall(text):
+                candidate = match.strip()
+                digits = re.sub(r'\D', '', candidate)
+                if len(digits) < 10:
+                    continue
+                # The last ten digits identify the number; a leading 1 or a
+                # country code should not make it look like a different one.
+                key = digits[-10:]
+                best = found.get(key)
+                if best is None or len(candidate) > len(best):
+                    found[key] = candidate
+        return list(found.values())
 
     def extract_contact_names(self, text):
         """Extract potential contact names from text"""

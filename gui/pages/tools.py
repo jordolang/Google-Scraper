@@ -88,7 +88,8 @@ class ToolsPage(Page):
     def _on_failed(self, message: str) -> None:
         self._lookup_failed = True
         self.state.log("tools", f"ERROR {message}")
-        QMessageBox.critical(self, "Lookup failed", message)
+        QMessageBox.critical(
+            self, "Lookup failed", f"{message}\n\n{services.explain_failure(message)}")
 
     def _on_ended(self) -> None:
         self.lookup_button.setEnabled(True)

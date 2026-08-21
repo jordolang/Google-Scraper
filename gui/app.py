@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import os
 import sys
 from pathlib import Path
@@ -147,6 +148,116 @@ def build_app(argv=None) -> tuple[QApplication, MainWindow]:
     return app, window
 
 
+#: Modules the app imports only when a feature is actually used — lazily,
+#: inside functions, so a packaged build can be missing them and still start.
+#: Every entry here has burned us or could: selenium resolves its chrome
+#: classes through a lazy string map that PyInstaller cannot follow, so a
+#: bundle can launch happily and then fail the moment Start Scraping is
+#: pressed. Importing them up front is what turns that into a build failure.
+RUNTIME_IMPORTS = (
+    "selenium",
+    "selenium.webdriver",
+    "selenium.webdriver.chrome.webdriver",
+    "selenium.webdriver.chrome.options",
+    "selenium.webdriver.chrome.service",
+    "selenium.webdriver.common.by",
+    "selenium.webdriver.common.keys",
+    "selenium.webdriver.support.ui",
+    "selenium.webdriver.support.expected_conditions",
+    "selenium.common.exceptions",
+    "bs4",
+    "lxml.etree",
+    "google_maps_scraper",
+    "contact_scraper",
+    "phone_lookup",
+    "generate_emails",
+    "send_emails",
+    "data_store",
+    "industries",
+    "pricing_store",
+    "email_config",
+    "tui.pitch_script",
+    "salescall.objections",
+    "smtplib",
+    "email.mime.multipart",
+    "email.mime.text",
+    "csv",
+    "zipfile",
+    "webbrowser",
+)
+
+
+def _check_runtime_imports() -> list:
+    """Import everything the app reaches for lazily, and build a ChromeOptions.
+
+    A missing module here means a packaged app that starts fine and then dies
+    on the first real action.
+    """
+    problems = []
+    for name in RUNTIME_IMPORTS:
+        try:
+            importlib.import_module(name)
+        except Exception as exc:  # noqa: BLE001 - that is the thing being tested
+            problems.append(f"import {name}: {type(exc).__name__}: {exc}")
+
+    # The scrapers all start by configuring Chrome. Constructing the options
+    # object exercises selenium's lazy attribute map for real, which naming
+    # the submodules alone does not.
+    try:
+        from selenium import webdriver
+
+        options = webdriver.ChromeOptions()
+        options.add_argument("--headless=new")
+    except Exception as exc:  # noqa: BLE001
+        problems.append(f"webdriver.ChromeOptions(): {type(exc).__name__}: {exc}")
+    return problems
+
+
+def _check_pipeline_runs() -> list:
+    """Drive a whole demo run: search, scan, compose, export.
+
+    This is the app's actual job. It touches the CSV writer, the email
+    template renderer, the industry classifier and the pricing store, so a
+    bundle missing any of them fails here rather than in front of a customer.
+    """
+    import tempfile
+
+    problems = []
+    try:
+        from tui.pipeline import DemoPipeline
+
+        from . import services
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pipeline = DemoPipeline(data_root=root)
+            businesses = pipeline.search("Roofing Contractors", "Columbus, OH")
+            if not businesses:
+                problems.append("demo search returned nothing")
+            pipeline.scrape_contacts(businesses)
+            if pipeline.last_listings_csv is None or not pipeline.last_listings_csv.exists():
+                problems.append("the run wrote no listings CSV")
+
+            with_email = [b for b in businesses if b.has_email]
+            if not with_email:
+                problems.append("the demo scan produced no email addresses")
+            else:
+                message = pipeline.build_message(with_email[0])
+                if "<" not in message.html or not message.subject:
+                    problems.append("composing an email produced no rendered HTML")
+
+            csv_path = root / "selftest.csv"
+            services.export_csv(csv_path, ["name"], [{"name": "Acme"}])
+            xlsx_path = root / "selftest.xlsx"
+            services.export_xlsx(xlsx_path, ["name"], [{"name": "Acme"}])
+            for path in (csv_path, xlsx_path):
+                if not path.exists() or not path.stat().st_size:
+                    problems.append(f"export produced no {path.suffix} file")
+    except Exception as exc:  # noqa: BLE001 - that is the thing being tested
+        problems.append(f"demo pipeline: {type(exc).__name__}: {exc}")
+    return problems
+
+
 def selftest(argv=None) -> int:
     """Build the whole UI offscreen, visit every page, and report.
 
@@ -164,6 +275,9 @@ def selftest(argv=None) -> int:
             app.processEvents()
         except Exception as exc:  # noqa: BLE001 - that is the thing being tested
             problems.append(f"{key}: {type(exc).__name__}: {exc}")
+    problems.extend(_check_runtime_imports())
+    problems.extend(_check_pipeline_runs())
+
     # The assets the app cannot work without.
     from . import runtime
 
@@ -181,6 +295,7 @@ def selftest(argv=None) -> int:
     if problems:
         return 1
     print(f"OK  {len(window.pages)} pages, {len(rendered)} templates, "
+          f"{len(RUNTIME_IMPORTS)} runtime imports, demo pipeline ran, "
           f"data dir {runtime.working_dir()}")
     return 0
 

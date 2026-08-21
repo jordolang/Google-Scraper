@@ -531,6 +531,110 @@ def test_social_links_need_a_real_domain_match():
         "https://www.facebook.com/real", "https://linkedin.com/company/real"]
 
 
+def test_the_spec_collects_selenium_whole():
+    """Naming selenium submodules by hand ships a build that cannot scrape.
+
+    Selenium resolves its driver classes through a lazy string map that
+    PyInstaller cannot follow, so a hand-written list silently omits whatever
+    was not thought of — which is how a packaged build launched fine and then
+    died on "No module named 'selenium.webdriver.chrome.options'".
+    """
+    text = (Path(__file__).resolve().parent.parent
+            / "packaging" / "LocalLeadScraperPro.spec").read_text(encoding="utf-8")
+    # Comments explain the trap by quoting it, so read the code alone.
+    spec = "\n".join(line for line in text.splitlines()
+                     if not line.lstrip().startswith("#"))
+    assert 'collect_submodules("selenium")' in spec
+    for lazy in ("chrome.options", "chrome.webdriver", "chrome.service"):
+        assert f'"selenium.webdriver.{lazy}"' not in spec, (
+            f"selenium.webdriver.{lazy} is listed by hand; collect_submodules "
+            "covers it and cannot miss its siblings")
+
+
+def test_every_lazily_imported_module_is_checked_by_the_selftest():
+    """The self-test's import list must keep up with the code.
+
+    Anything imported inside a function is invisible to PyInstaller's analysis
+    and therefore a candidate for going missing from the bundle. If it is not
+    in RUNTIME_IMPORTS, nothing catches that before a user does.
+    """
+    import re
+
+    from gui.app import RUNTIME_IMPORTS
+
+    root = Path(__file__).resolve().parent.parent
+    lazy = set()
+    for path in sorted((root / "gui").rglob("*.py")) + [root / "tui" / "pipeline.py"]:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            # An import indented inside a function body, not at module level.
+            match = re.match(r"\s+from ([a-zA-Z_][\w.]*) import |\s+import ([\w.]+)", line)
+            if not match:
+                continue
+            name = (match.group(1) or match.group(2)).split(".")[0]
+            if name in {"gui", "tui", "typing", "pathlib", "datetime", "PySide6",
+                        "__future__", "tempfile", "importlib", "re", "json", "os", "sys"}:
+                continue
+            lazy.add(name)
+
+    checked = {name.split(".")[0] for name in RUNTIME_IMPORTS}
+    missing = sorted(lazy - checked)
+    assert not missing, (
+        f"lazily imported but not covered by the packaged self-test: {missing}")
+
+
+def test_failure_advice_matches_what_actually_failed():
+    """A build fault must not be reported as the user's missing browser.
+
+    The catch-all "install Chrome" hint is what sent someone chasing a browser
+    they already had when the real problem was a module missing from the
+    package.
+    """
+    build_fault = services.explain_failure(
+        "ModuleNotFoundError: No module named 'selenium.webdriver.chrome.options'")
+    assert "packaging fault" in build_fault
+    assert "Install Chrome" not in build_fault
+
+    assert "Chrome was not found" in services.explain_failure(
+        "WebDriverException: unable to locate Chrome binary")
+    assert "do not match" in services.explain_failure(
+        "session not created: This version of ChromeDriver only supports Chrome 140")
+    assert "did not load in time" in services.explain_failure("TimeoutException: timed out")
+    assert "app-specific" in services.explain_failure("SMTP authentication failed 535")
+    # Anything unrecognised still points at the logs.
+    assert "Logs page" in services.explain_failure("something unexpected")
+
+
+def test_one_phone_number_yields_one_entry():
+    """The two phone regexes overlap; a number must not appear twice.
+
+    "(614) 555-0142" matched the US pattern whole and the international one
+    from the digit after the bracket, so the scan produced a real number and a
+    malformed twin — and `set` ordering meant the twin could come first and
+    end up as the number on the call sheet.
+    """
+    import re
+
+    import contact_scraper
+
+    scraper = contact_scraper.ContactScraper.__new__(contact_scraper.ContactScraper)
+    scraper.phone_patterns = [
+        re.compile(r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}'),
+        re.compile(r'\+?\d{1,3}[-.\s]?\(?\d{1,4}\)?[-.\s]?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,9}'),
+    ]
+
+    assert scraper.extract_phones("Call (614) 555-0142 today") == ["(614) 555-0142"]
+    # Two genuinely different numbers stay two, in the order they appear.
+    assert scraper.extract_phones(
+        "Office (614) 555-0142 or mobile 614-555-0199"
+    ) == ["(614) 555-0142", "614-555-0199"]
+    # A leading 1 is the same number, not another one.
+    assert scraper.extract_phones("1-800-555-0143 or 800-555-0143") == ["1-800-555-0143"]
+    assert scraper.extract_phones("no numbers here") == []
+    # Deterministic: the same text must not reorder between runs.
+    text = "Call (614) 555-0142 or (614) 555-0199"
+    assert scraper.extract_phones(text) == scraper.extract_phones(text)
+
+
 # --------------------------------------------------------------------------- #
 #  packaging assets
 # --------------------------------------------------------------------------- #

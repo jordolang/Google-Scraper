@@ -10,7 +10,7 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QMessageBox
 
 from contact_scraper import INSIGHT_CATEGORIES
 
-from .. import theme
+from .. import theme, services
 from ..state import Lead
 from ..widgets.common import (
     Card, DataTable, KeyValueRow, LogView, Pill, button, checkbox, hint,
@@ -376,7 +376,8 @@ class WebsiteScraperPage(Page):
     def _on_failed(self, message: str) -> None:
         self.status_pill.set_state("Failed", "bad")
         self.state.log("scan", f"ERROR {message}")
-        QMessageBox.critical(self, "Scan failed", message)
+        QMessageBox.critical(
+            self, "Scan failed", f"{message}\n\n{services.explain_failure(message)}")
 
     def _on_cancelled(self) -> None:
         self.status_pill.set_state("Stopped", "warn")

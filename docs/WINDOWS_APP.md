@@ -46,6 +46,32 @@ it.
 
 ### Option B — build it yourself on a Windows machine
 
+
+## Why the bundle collects selenium whole
+
+Selenium 4 resolves its driver classes through a lazy string map:
+
+```python
+"ChromeOptions": ("selenium.webdriver.chrome.options", "Options"),
+```
+
+Those module paths are strings in a dict, looked up by `__getattr__` when the
+attribute is first touched. PyInstaller's static analysis cannot see them, so a
+hand-written list of `hiddenimports` only ever contains the submodules someone
+remembered — and the resulting .exe starts perfectly, shows every screen, and
+then dies the moment Start Scraping is pressed:
+
+    ModuleNotFoundError: No module named 'selenium.webdriver.chrome.options'
+
+`collect_submodules("selenium")` in the spec is what prevents that, and
+`tests/test_gui.py::test_the_spec_collects_selenium_whole` fails if anyone
+replaces it with a hand-written list again.
+
+The same shape of bug is why `--selftest` imports `RUNTIME_IMPORTS` and runs a
+whole demo pipeline rather than only building the windows: anything imported
+lazily, inside a function, is invisible to the packager and therefore able to
+go missing without the build noticing.
+
 ```bat
 git clone https://github.com/jordolang/Google-Scraper
 cd Google-Scraper

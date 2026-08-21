@@ -92,7 +92,18 @@ jobs:
       - name: Smoke-test the UI offscreen
         env:
           QT_QPA_PLATFORM: offscreen
-        run: pytest tests/test_gui.py -q
+        run: pytest tests/test_gui.py tests/test_gui_flow.py -q
+
+      - name: Scrape a live page with the real browser
+        # The runner ships Chrome, and driving it is the app's whole job — the
+        # offscreen suite would not have caught a bundle that cannot scrape.
+        # Non-blocking: a browser/driver hiccup on the runner must not fail a
+        # release, but it is worth seeing in the log.
+        continue-on-error: true
+        env:
+          QT_QPA_PLATFORM: offscreen
+          LLSP_LIVE_TESTS: "1"
+        run: pytest tests/test_live_scrape.py -q
 
       - name: Generate icon and version resource
         run: |

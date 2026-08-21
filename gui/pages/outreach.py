@@ -470,7 +470,8 @@ class EmailCampaigns(QWidget):
 
     def _on_failed(self, message: str) -> None:
         self.state.log("email", f"ERROR {message}")
-        QMessageBox.critical(self, "Send failed", message)
+        QMessageBox.critical(
+            self, "Send failed", f"{message}\n\n{services.explain_failure(message)}")
 
     def on_close(self) -> None:
         if self.runner.running:

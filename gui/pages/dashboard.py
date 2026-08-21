@@ -300,10 +300,7 @@ class DashboardPage(Page):
         self.state.log("search", f"ERROR {message}")
         self.state.set_status("Scrape failed")
         QMessageBox.critical(
-            self, "Scrape failed",
-            f"{message}\n\nCheck the Logs page for the full trace. If Chrome is "
-            "missing, install Google Chrome or turn on Demo mode in Settings.",
-        )
+            self, "Scrape failed", f"{message}\n\n{services.explain_failure(message)}")
 
     def _on_cancelled(self) -> None:
         self.stat_status.set_value("Stopped")
