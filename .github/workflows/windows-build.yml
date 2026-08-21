@@ -1,0 +1,136 @@
+name: Windows App
+
+# Builds the desktop app into a single .exe on a real Windows runner —
+# PyInstaller cannot cross-compile, so this is how a Windows binary gets made
+# without a Windows machine. The artifact is attached to the run, and to the
+# release when the tag is pushed.
+
+on:
+  push:
+    branches: [main]
+    # A tag pushed by version.yml uses GITHUB_TOKEN, and GitHub does not start
+    # a new workflow run for those — so the release-attach path below fires
+    # only for a tag pushed by a person or a PAT. Every push to main still
+    # uploads the .exe as a run artifact, and workflow_dispatch builds one on
+    # demand. See the note in docs/WINDOWS_APP.md.
+    tags: ["v*"]
+    paths: &build_inputs
+      # Everything the .exe is built from — the spec bundles the root scraper
+      # modules and salescall too, so a change there can break the package.
+      - "gui/**"
+      - "tui/**"
+      - "salescall/**"
+      - "packaging/**"
+      - "email_templates/**"
+      - "run_gui.py"
+      - "contact_scraper.py"
+      - "google_maps_scraper.py"
+      - "phone_lookup.py"
+      - "generate_emails.py"
+      - "send_emails.py"
+      - "data_store.py"
+      - "industries.py"
+      - "pricing_store.py"
+      - "email_config.py"
+      - "email_template.html"
+      - "pitch_script.md"
+      - "requirements*.txt"
+      - "VERSION"
+      - ".github/workflows/windows-build.yml"
+  pull_request:
+    paths: *build_inputs
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-gui.txt
+
+      - name: Smoke-test the UI offscreen
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: pytest tests/test_gui.py -q
+
+      - name: Generate icon and version resource
+        run: |
+          python packaging/make_icon.py
+          python packaging/make_version_info.py
+
+      - name: Build LocalLeadScraperPro.exe
+        run: pyinstaller --clean --noconfirm packaging/LocalLeadScraperPro.spec
+
+      - name: Check the executable launches
+        run: |
+          $exe = "dist/LocalLeadScraperPro.exe"
+          if (-not (Test-Path $exe)) { throw "the build produced no executable" }
+          $size = [math]::Round((Get-Item $exe).Length / 1MB, 1)
+          Write-Host "built $exe ($size MB)"
+
+          # --selftest builds every screen offscreen and exits non-zero on any
+          # failure, so a broken bundle fails here rather than on someone's desk.
+          #
+          # Start-Process, not "& $exe": this is a windowed (GUI-subsystem)
+          # binary, so the call operator returns immediately without waiting and
+          # leaves $LASTEXITCODE empty, which reads as a failure even when the
+          # self-test passed.
+          $startArgs = @{
+            FilePath               = $exe
+            ArgumentList           = "--selftest"
+            PassThru               = $true
+            NoNewWindow            = $true
+            RedirectStandardOutput = "selftest-out.txt"
+            RedirectStandardError  = "selftest-err.txt"
+          }
+          $proc = Start-Process @startArgs
+          if (-not $proc.WaitForExit(180000)) {
+            $proc.Kill()
+            throw "self-test did not finish within 3 minutes"
+          }
+          $out = Get-Content selftest-out.txt -Raw -ErrorAction SilentlyContinue
+          $err = Get-Content selftest-err.txt -Raw -ErrorAction SilentlyContinue
+          if ($out) { Write-Host $out }
+          if ($err) { Write-Host $err }
+
+          $code = $proc.ExitCode
+          if ($null -eq $code) {
+            # Some Windows/PowerShell combinations do not surface an exit code
+            # for a detached GUI process; fall back to the success marker the
+            # self-test prints.
+            if ($out -and $out.StartsWith("OK")) {
+              Write-Host "self-test passed (no exit code reported)"
+            } else {
+              throw "self-test reported neither an exit code nor an OK marker"
+            }
+          } elseif ($code -ne 0) {
+            throw "self-test failed (exit $code)"
+          } else {
+            Write-Host "self-test passed"
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LocalLeadScraperPro-windows
+          path: dist/LocalLeadScraperPro.exe
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Attach the exe to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/LocalLeadScraperPro.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

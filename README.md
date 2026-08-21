@@ -19,6 +19,10 @@ A comprehensive Python-based toolkit for scraping business information from Goog
   - [Built-in Pitch Script](#built-in-pitch-script)
   - [Command-Line Options](#command-line-options)
   - [How It Fits Together](#how-it-fits-together)
+- [Windows Desktop App (GUI)](#-windows-desktop-app-gui)
+  - [Getting the .exe](#getting-the-exe)
+  - [The Screens](#the-screens)
+  - [What It Needs](#what-it-needs)
 - [Usage — Business Pipeline](#-usage)
   - [Scraping Google Maps](#1-scraping-google-maps)
   - [Scraping Contact Details](#2-scraping-contact-details)
@@ -435,6 +439,63 @@ The `tui/` package wires these together:
 
 Because it shares the underlying tools, anything you send from the TUI behaves
 identically to the command-line workflow described below.
+
+---
+
+## 🪟 Windows Desktop App (GUI)
+
+A point-and-click Windows front end over the same pipeline the TUI drives —
+one navigation rail, one screen per stage, and a single `.exe` that needs no
+Python on the machine it runs on. Full guide: **[docs/WINDOWS_APP.md](docs/WINDOWS_APP.md)**.
+
+```bash
+pip install -r requirements.txt -r requirements-gui.txt
+python -m gui              # run it
+python -m gui --demo       # tour it with sample data — no Chrome, no SMTP
+```
+
+### Getting the .exe
+
+| How | What you do |
+| --- | --- |
+| **Download** | GitHub **Actions → Windows App →** newest run → the `LocalLeadScraperPro-windows` artifact. A hand-pushed `v*` tag attaches it to the release as well; the automatic release tag cannot (see [docs](docs/WINDOWS_APP.md#getting-the-exe)). |
+| **Build it** | On Windows: `packaging\build_windows.bat` → `dist\LocalLeadScraperPro.exe` |
+| **From source** | `python -m gui` on any OS |
+
+The executable is self-contained (Python and Qt travel with it), so there is
+nothing to install and nothing lands in `Program Files`. PyInstaller cannot
+cross-compile, which is why the Windows binary is built by the
+[`windows-build`](.github/workflows/windows-build.yml) CI job on a Windows
+runner.
+
+### The Screens
+
+| Screen | What it does |
+| --- | --- |
+| **Dashboard** | Location + one or more industries (`Roofing Contractors, Plumbers`), radius, per-industry result cap. One results tab per industry, with live progress and a tick box per business. |
+| **Website Scraper** | Visits each selected site: activity log, progress overview (completed / in flight / remaining / data points / elapsed), and per-category counts — services, images, social profiles, reviews, certifications, hours. Pause and Stop work mid-run. |
+| **Business Listings** | The raw listings and the extracted contact data, searchable and filterable (has email, missing contact info, scanned, emailed), paginated, exportable to CSV **or Excel**. |
+| **Contacts & Outreach** | Campaign setup (template, subject, delay, daily cap), a recipients grid, browser preview of the composed email, dry-run sending, live counters — plus a **Call Scripts** tab with the pitch script step by step and objection handling personalised per business. |
+| **Settings / Tools / Logs / Help** | SMTP account with a Test Connection button, headless or visible Chrome, demo mode, export folder; phone-number lookup, package pricing, re-loading a previous export; a filterable session log; and an in-app guide. |
+
+The GUI writes the same CSVs, into the same `data/<term>/<location>/` folders,
+as the terminal app — the two front ends share `tui/pipeline.py`.
+
+### What It Needs
+
+* **Demo mode:** nothing at all.
+* **Live scraping:** Google Chrome installed (Selenium drives your own browser).
+* **Sending email:** an app-specific password, entered on the Settings page or
+  set as `EMAIL_PASSWORD` in a `.env` file. It is never written to disk by the app.
+
+Packaged runs keep exports, editable templates, `pitch_script.md` and
+`pricing.json` under `%LOCALAPPDATA%\LocalLeadScraperPro\`; preferences live in
+`%APPDATA%\LocalLeadScraperPro\settings.json`.
+
+> Two things the app deliberately does not pretend to do: email **opens, clicks
+> and replies are not tracked** (direct SMTP cannot report them), and the
+> **radius** control is advisory — Google Maps ranks by proximity to the
+> location you type and has no radius filter.
 
 ---
 

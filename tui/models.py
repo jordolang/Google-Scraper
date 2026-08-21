@@ -41,6 +41,11 @@ class Business:
     contact_names: List[str] = field(default_factory=list)
     scanned: bool = False
 
+    # What the website itself showed, by data category: {"services": 8,
+    # "images": 15, ...} keyed like contact_scraper.INSIGHT_CATEGORIES.
+    insights: dict = field(default_factory=dict)
+    social_links: List[str] = field(default_factory=list)
+
     # Where :attr:`phones` came from when the website scan found nothing:
     # "" (the site itself), "google", or "yellowpages".
     phone_source: str = ""
@@ -185,6 +190,21 @@ class ScanEvent:
     phones: List[str] = field(default_factory=list)
     contact_names: List[str] = field(default_factory=list)
     error: str = ""
+    insights: dict = field(default_factory=dict)
+    social_links: List[str] = field(default_factory=list)
+
+    @property
+    def data_points(self) -> int:
+        """Everything this scan turned up, counted — one headline number."""
+        # "contact_info" is the contact tally the pipeline stores for the
+        # category panel — counting it here as well would double it.
+        counted = sum(
+            int(value) for key, value in self.insights.items()
+            if key != "contact_info" and isinstance(value, (int, float))
+        )
+        return (
+            len(self.emails) + len(self.phones) + len(self.contact_names) + counted
+        )
 
     @property
     def finished(self) -> bool:

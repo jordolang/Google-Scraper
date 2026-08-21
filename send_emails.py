@@ -35,7 +35,7 @@ def load_dotenv(path=".env"):
 
 class EmailSender:
     def __init__(self, from_email="jordan@jlang.dev", smtp_server=None, smtp_port=None,
-                 smtp_username=None):
+                 smtp_username=None, reply_to=None):
         """
         Initialize the email sender
 
@@ -47,9 +47,12 @@ class EmailSender:
                 Defaults to from_email. For an iCloud custom email domain
                 (e.g. jlang.dev), this often must be your primary Apple ID
                 @icloud.com address, NOT the custom-domain alias.
+            reply_to: Address replies should go to, when it differs from the
+                From: address. Omitted from the message entirely when unset.
         """
         self.from_email = from_email
         self.smtp_username = smtp_username or from_email
+        self.reply_to = reply_to or ""
         self.from_name = "Jordan Lang"
         
         # Auto-detect SMTP settings based on email provider
@@ -250,6 +253,8 @@ class EmailSender:
             msg['From'] = f"{self.from_name} <{self.from_email}>"
             msg['To'] = to_email
             msg['Subject'] = subject
+            if self.reply_to:
+                msg['Reply-To'] = self.reply_to
             
             # Attach HTML content
             html_part = MIMEText(html_content, 'html')

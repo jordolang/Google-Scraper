@@ -104,3 +104,9 @@ generated_emails/
 # Claude artifacts
 .claude/
 search
+
+# Windows app build output (packaging/build_windows.bat)
+.venv-build/
+dist/
+build/
+*.spec.bak

@@ -1,0 +1,9 @@
+# Desktop (Windows) front end. Install alongside requirements.txt:
+#
+#     pip install -r requirements.txt -r requirements-gui.txt
+#     python -m gui                 # run it
+#     python -m gui --demo          # sample data, no browser needed
+#
+# PySide6 is the only extra runtime dependency; PyInstaller is build-time only.
+PySide6>=6.6.0
+pyinstaller>=6.3.0
