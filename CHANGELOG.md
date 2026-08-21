@@ -11,6 +11,11 @@ The bump is driven by the commit subject: `feat:` is a feature, everything else
 (`fix:`, `docs:`, `chore:`, `refactor:`…) is a fix-level change. See
 [Versioning](README.md#️-versioning) for the full rules.
 
+## [1.3a] - 2026-08-21
+
+### Changed
+- Create devcontainer with Catnip feature
+
 ## [1.3] - 2026-08-21
 
 ### Added
