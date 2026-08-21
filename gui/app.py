@@ -1,0 +1,200 @@
+"""Application shell: the window, the navigation rail, and the page stack."""
+
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+from typing import Dict
+
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QIcon
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QMainWindow, QStackedWidget, QWidget
+
+from . import runtime, theme
+from .pages import Page
+from .pages.dashboard import DashboardPage
+from .pages.help_page import HelpPage
+from .pages.listings import ListingsPage
+from .pages.logs import LogsPage
+from .pages.outreach import OutreachPage
+from .pages.settings_page import SettingsPage
+from .pages.tools import ToolsPage
+from .pages.website_scraper import WebsiteScraperPage
+from .state import AppState
+from .widgets.sidebar import Sidebar, brand_mark
+
+APP_TITLE = "Local Lead Scraper Pro"
+
+
+def app_version() -> str:
+    """The repo's VERSION file, when it travelled with the app."""
+    for candidate in (runtime.bundle_dir() / "VERSION",
+                      Path(__file__).resolve().parent.parent / "VERSION"):
+        try:
+            return candidate.read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+    return ""
+
+
+class MainWindow(QMainWindow):
+    def __init__(self, state: AppState) -> None:
+        super().__init__()
+        self.state = state
+        version = app_version()
+        self.setWindowTitle(f"{APP_TITLE}{f'  v{version}' if version else ''}")
+        self.setWindowIcon(QIcon(brand_mark(64)))
+        self.resize(1280, 820)
+        self.setMinimumSize(1080, 680)
+
+        central = QWidget()
+        central.setObjectName("Workspace")
+        central.setAttribute(Qt.WA_StyledBackground, True)
+        layout = QHBoxLayout(central)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        self.sidebar = Sidebar()
+        self.stack = QStackedWidget()
+        layout.addWidget(self.sidebar)
+        layout.addWidget(self.stack, 1)
+        self.setCentralWidget(central)
+
+        # -- pages ---------------------------------------------------------
+        self.pages: Dict[str, Page] = {
+            "dashboard": DashboardPage(state),
+            "listings": ListingsPage(state),
+            "scraper": WebsiteScraperPage(state),
+            "outreach": OutreachPage(state),
+            "settings": SettingsPage(state),
+            "tools": ToolsPage(state),
+            "logs": LogsPage(state),
+            "help": HelpPage(state),
+        }
+        for page in self.pages.values():
+            self.stack.addWidget(page)
+
+        self.sidebar.navigated.connect(self.go_to)
+        state.status_changed.connect(self._on_status)
+        state.settings_changed.connect(self._apply_license)
+
+        # Pages ask each other for the spotlight — "Go to Website Scraper".
+        for page in self.pages.values():
+            if hasattr(page, "navigate_requested"):
+                page.navigate_requested.connect(self.go_to)
+
+        self._apply_license()
+        self.go_to("dashboard")
+
+    # -- navigation --------------------------------------------------------
+    def go_to(self, key: str) -> None:
+        page = self.pages.get(key)
+        if page is None:
+            return
+        self.sidebar.select(key)
+        self.stack.setCurrentWidget(page)
+        page.on_show()
+
+    def _on_status(self, text: str) -> None:
+        tone = "idle"
+        lowered = text.lower()
+        if any(word in lowered for word in ("scraping", "sending", "scanning", "looking")):
+            tone = "busy"
+        elif any(word in lowered for word in ("failed", "error", "stopped")):
+            tone = "bad"
+        self.sidebar.set_status(text, tone)
+
+    def _apply_license(self) -> None:
+        self.sidebar.set_license(
+            str(self.state.settings.get("license_tier", "Pro")),
+            str(self.state.settings.get("license_expires", "—")),
+        )
+
+    # -- lifecycle ---------------------------------------------------------
+    def closeEvent(self, event) -> None:  # noqa: N802 - Qt naming
+        for page in self.pages.values():
+            try:
+                page.on_close()
+            except Exception:  # noqa: BLE001 - closing must not raise
+                pass
+        from . import settings_store
+
+        settings_store.save(self.state.settings)
+        super().closeEvent(event)
+
+
+def build_app(argv=None) -> tuple[QApplication, MainWindow]:
+    """Create the QApplication + window without entering the event loop.
+
+    Split out so tests (and the smoke check in CI) can build the whole UI
+    offscreen and assert on it.
+    """
+    argv = list(argv if argv is not None else sys.argv)
+    runtime.prepare()
+    existing = QApplication.instance()
+    app = existing or QApplication(argv)
+    app.setApplicationName(APP_TITLE)
+    app.setOrganizationName("Jlang.dev")
+    app.setStyle("Fusion")
+    app.setStyleSheet(theme.stylesheet())
+
+    state = AppState()
+    if "--demo" in argv:
+        state.settings["demo_mode"] = True
+    window = MainWindow(state)
+    return app, window
+
+
+def selftest(argv=None) -> int:
+    """Build the whole UI offscreen, visit every page, and report.
+
+    The packaged build runs this in CI (``LocalLeadScraperPro.exe --selftest``)
+    so a bundle that is missing a module or an asset fails the build instead of
+    failing on someone's desk.
+    """
+    os.environ["QT_QPA_PLATFORM"] = "offscreen"
+    app, window = build_app(list(argv or []))
+    window.show()
+    problems = []
+    for key in window.sidebar.keys():
+        try:
+            window.go_to(key)
+            app.processEvents()
+        except Exception as exc:  # noqa: BLE001 - that is the thing being tested
+            problems.append(f"{key}: {type(exc).__name__}: {exc}")
+    # The assets the app cannot work without.
+    from . import runtime, services
+
+    if not services.available_templates():
+        problems.append("no email templates found")
+    if not runtime.bundle_dir().exists():
+        problems.append("bundle directory missing")
+    for line in problems:
+        print(f"FAIL {line}", file=sys.stderr)
+    if problems:
+        return 1
+    print(f"OK  {len(window.pages)} pages, "
+          f"{len(services.available_templates())} templates, "
+          f"data dir {runtime.working_dir()}")
+    return 0
+
+
+def main(argv=None) -> int:
+    """Entry point for ``python -m gui`` and for the packaged executable."""
+    # Qt's default rounding makes 125%-scaled Windows desktops look soft.
+    os.environ.setdefault("QT_ENABLE_HIGHDPI_SCALING", "1")
+    QApplication.setHighDpiScaleFactorRoundingPolicy(
+        Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+    )
+    if argv is None:
+        argv = sys.argv
+    if "--selftest" in argv:
+        return selftest(argv)
+    app, window = build_app(argv)
+    window.show()
+    return app.exec()
+
+
+if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(main())

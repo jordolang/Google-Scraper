@@ -134,7 +134,11 @@ def test_pipeline_scan_folds_contacts_into_the_listings_file(tmp_path):
 
     assert pipeline.last_contacts_csv.exists()
     rows = {r["name"]: r for r in read_csv(pipeline.last_listings_csv)}
-    assert rows["Bright Spark Electric"]["email"] == "info@brightsparkelectric.example"
+    # Demo names follow the search term ("Electricians" -> "Electrician Pros"),
+    # so read the expected address off the business rather than hardcoding it.
+    first = businesses[0]
+    assert rows[first.name]["email"] == first.primary_email
+    assert first.primary_email.endswith("@electricianpros.example")
 
 
 def test_pipeline_send_logs_the_contact_attempt(tmp_path):
@@ -146,12 +150,13 @@ def test_pipeline_send_logs_the_contact_attempt(tmp_path):
     pipeline.send(messages, password="", dry_run=False)
 
     rows = {r["name"]: r for r in read_csv(pipeline.last_listings_csv)}
-    emailed = rows["Bright Spark Electric"]
+    emailed = rows[messages[0].business.name]
     assert emailed["emailed"] == "yes"
-    assert emailed["emailed_to"] == "info@brightsparkelectric.example"
+    assert emailed["emailed_to"] == messages[0].to_email
     assert emailed["email_template"] == data_store.STANDARD_EMAIL
     # A business we never emailed is left alone.
-    assert rows["Amp & Wire Co."]["emailed"] == ""
+    never = next(b for b in businesses if not b.has_email)
+    assert rows[never.name]["emailed"] == ""
 
 
 def test_dry_run_does_not_log_an_outreach(tmp_path):

@@ -23,6 +23,7 @@ Two implementations are provided:
 
 from __future__ import annotations
 
+import re
 import time
 from pathlib import Path
 from typing import Callable, List, Optional, Sequence
@@ -339,6 +340,13 @@ class LivePipeline(Pipeline):
                 business.emails = list(info.get("emails", []))
                 business.phones = list(info.get("phones", []))
                 business.contact_names = list(info.get("contact_names", []))
+                business.insights = dict(info.get("insights", {}) or {})
+                business.social_links = list(info.get("social_links", []) or [])
+                if business.insights:
+                    business.insights["contact_info"] = (
+                        len(business.emails) + len(business.phones)
+                        + len(business.contact_names)
+                    )
                 if business.emails:
                     progress(f"    ✓ {', '.join(business.emails)}")
                 else:
@@ -350,6 +358,8 @@ class LivePipeline(Pipeline):
                         idx, total, label, website=business.website, status="done",
                         emails=list(business.emails), phones=list(business.phones),
                         contact_names=list(business.contact_names),
+                        insights=dict(business.insights),
+                        social_links=list(business.social_links),
                     )
                 )
                 time.sleep(1)
@@ -519,6 +529,35 @@ class DemoPipeline(Pipeline):
          "9 Pine St, Hilliard, OH 43026", "", "(614) 555-0155", [], []),
     ]
 
+    # Demo names are built from the search term so two industries produce two
+    # distinct sets of businesses, the way a real search would.
+    _NAME_TEMPLATES = (
+        "{trade} Pros", "Premier {trade}", "{trade} Masters",
+        "All-Star {trade}", "Reliable {trade} Co.",
+    )
+
+    _GENERIC_WORDS = ("contractors", "contractor", "services", "service",
+                      "companies", "company")
+
+    @classmethod
+    def _demo_trade(cls, field: str) -> str:
+        """Turn a search term into a word that reads well inside a name."""
+        words = [w for w in (field or "electricians").split()
+                 if w.lower() not in cls._GENERIC_WORDS]
+        trade = " ".join(words).title() or "Local"
+        if trade.lower().endswith("s") and not trade.lower().endswith("ss"):
+            trade = trade[:-1]  # "Plumbers" -> "Plumber"
+        return trade
+
+    @classmethod
+    def _demo_name(cls, field: str, index: int) -> str:
+        trade = cls._demo_trade(field)
+        return cls._NAME_TEMPLATES[index % len(cls._NAME_TEMPLATES)].format(trade=trade)
+
+    @staticmethod
+    def _demo_slug(name: str) -> str:
+        return "".join(ch for ch in name.lower() if ch.isalnum()) or "business"
+
     def search(
         self,
         field: str,
@@ -529,12 +568,21 @@ class DemoPipeline(Pipeline):
     ) -> List[Business]:
         progress(f"[demo] pretending to search for “{f'{field} {location}'.strip()}”…")
         businesses: List[Business] = []
-        for name, cat, rating, addr, site, phone, _emails, _names in self._SAMPLE:
+        for index, (_sample_name, cat, rating, addr, site, phone, _emails, _names) in enumerate(
+            self._SAMPLE
+        ):
             time.sleep(0.15)
+            name = self._demo_name(field, index)
+            slug = self._demo_slug(name)
             b = Business(
-                name=name, category=cat, rating=rating, address=addr,
-                website=site, phone=phone, reviews_count="42",
-                url="https://maps.google.com/?demo",
+                name=name,
+                category=field.title() if field else cat,
+                rating=rating, address=addr,
+                website=f"https://{slug}.example" if site else "",
+                phone=phone, reviews_count="42",
+                # The index lets the contact scan find this row's canned data
+                # even though the name changes with the search term.
+                url=f"https://maps.google.com/?demo={index}",
             )
             businesses.append(b)
             progress(f"  found: {name}")
@@ -550,7 +598,6 @@ class DemoPipeline(Pipeline):
         progress: ProgressFn = _noop,
         on_event: ScanFn = _noop_event,
     ) -> List[Business]:
-        lookup = {row[0]: row for row in self._SAMPLE}
         total = len(businesses)
         for idx, business in enumerate(businesses, 1):
             label = business.name or "business"
@@ -565,11 +612,22 @@ class DemoPipeline(Pipeline):
             on_event(ScanEvent(idx, total, label, website=business.website))
             time.sleep(0.2)
 
-            row = lookup.get(business.name)
+            row = self._sample_for(business)
             if row:
-                business.emails = list(row[6])
+                slug = self._demo_slug(business.name)
+                # Addresses follow the (renamed) business, so the demo reads as
+                # one coherent set rather than a mix of two — same mailbox
+                # names as the sample row, re-hosted on this business's domain.
+                business.emails = [
+                    f"{address.split('@')[0]}@{slug}.example" for address in row[6]
+                ]
                 business.contact_names = list(row[7])
                 business.phones = [row[5]] if row[5] else []
+            business.insights = self._demo_insights(business, idx)
+            business.social_links = [
+                f"https://facebook.com/{business.name.split()[0].lower()}",
+                f"https://linkedin.com/company/{business.name.split()[0].lower()}",
+            ][: 1 + idx % 2]
             if business.emails:
                 progress(f"    ✓ {', '.join(business.emails)}")
             else:
@@ -581,10 +639,41 @@ class DemoPipeline(Pipeline):
                     idx, total, label, website=business.website, status="done",
                     emails=list(business.emails), phones=list(business.phones),
                     contact_names=list(business.contact_names),
+                    insights=dict(business.insights),
+                    social_links=list(business.social_links),
                 )
             )
         self._safe_export_contacts(businesses, progress)
         return list(businesses)
+
+    def _sample_for(self, business):
+        """The canned row behind a demo business, found by its stamped index."""
+        match = re.search(r"[?&]demo=(\d+)", business.url or "")
+        if match:
+            index = int(match.group(1))
+            if index < len(self._SAMPLE):
+                return self._SAMPLE[index]
+        for row in self._SAMPLE:  # a business built by hand still resolves
+            if row[0] == business.name:
+                return row
+        return None
+
+    @staticmethod
+    def _demo_insights(business, idx: int) -> dict:
+        """Stable, believable category counts for the demo tour."""
+        return {
+            "business_info": 1,
+            "contact_info": len(business.emails) + len(business.phones),
+            "services": 4 + idx,
+            "about_us": 1,
+            "reviews": 8 + idx * 2,
+            "social_links": len(business.social_links),
+            "images": 9 + idx * 3,
+            "team": idx % 4,
+            "blog_news": idx % 2,
+            "certifications": 1 + idx % 3,
+            "hours": 1,
+        }
 
     def find_phones(
         self,

@@ -20,6 +20,92 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, WebDriverException
 
 
+# Categories the desktop app's "Data Categories" panel reports on. Each entry
+# is (key, label) in display order; ``page_insights`` returns a count per key.
+INSIGHT_CATEGORIES = (
+    ("business_info", "Business Info"),
+    ("contact_info", "Contact Info"),
+    ("services", "Services"),
+    ("about_us", "About Us"),
+    ("reviews", "Reviews/Testimonials"),
+    ("social_links", "Social Media Links"),
+    ("images", "Images"),
+    ("team", "Team/Staff"),
+    ("blog_news", "Blog/News"),
+    ("certifications", "Certifications"),
+    ("hours", "Hours of Operation"),
+)
+
+_SOCIAL_HOSTS = (
+    "facebook.com", "instagram.com", "linkedin.com", "twitter.com", "x.com",
+    "youtube.com", "tiktok.com", "pinterest.com", "yelp.com",
+)
+
+_SECTION_WORDS = {
+    "services": ("service", "what we do", "our work", "specialti"),
+    "about_us": ("about us", "about our", "our story", "who we are"),
+    "reviews": ("testimonial", "review", "what our customers", "rated us"),
+    "team": ("our team", "meet the team", "staff", "technicians", "our crew"),
+    "blog_news": ("blog", "news", "articles", "latest posts"),
+    "certifications": ("certified", "licensed", "accredited", "bbb", "insured",
+                       "certification", "award"),
+    "hours": ("hours", "open today", "monday", "mon -", "mon-", "appointment only"),
+}
+
+
+def social_links(html):
+    """Every distinct social-profile URL linked from a page."""
+    found = []
+    for match in re.finditer(r'href=["\']([^"\']+)["\']', html or "", re.I):
+        url = match.group(1)
+        host = urlparse(url).netloc.lower()
+        if not host:
+            continue
+        for social in _SOCIAL_HOSTS:
+            if host.endswith(social) and url not in found:
+                found.append(url)
+                break
+    return found
+
+
+def page_insights(html="", text=""):
+    """Count what a business website actually shows, by category.
+
+    Deliberately forgiving: small-business sites are built every which way, so
+    this counts evidence (a services heading, an <img>, a Facebook link) rather
+    than trying to parse a structure that is rarely there. Returns a count per
+    key in :data:`INSIGHT_CATEGORIES`; 0 means "nothing found".
+    """
+    html = html or ""
+    text = text or ""
+    haystack = (text + " " + html).lower()
+    counts = {key: 0 for key, _label in INSIGHT_CATEGORIES}
+
+    counts["business_info"] = 1 if (html or text) else 0
+    counts["images"] = len(re.findall(r"<img\b", html, re.I))
+    links = social_links(html)
+    counts["social_links"] = len(links)
+
+    # Service-ish list items and headings give a rough menu size.
+    headings = re.findall(r"<h[1-4][^>]*>(.*?)</h[1-4]>", html, re.I | re.S)
+    stripped = [re.sub(r"<[^>]+>", " ", h).strip().lower() for h in headings]
+    for key, words in _SECTION_WORDS.items():
+        hits = sum(1 for h in stripped if any(word in h for word in words))
+        if not hits and any(word in haystack for word in words):
+            hits = 1
+        counts[key] = hits
+
+    if counts["services"]:
+        # A services section usually lists its offerings; count them so the
+        # UI can say "8 services found" rather than just "yes".
+        items = re.findall(r"<li[^>]*>(.*?)</li>", html, re.I | re.S)
+        listed = [re.sub(r"<[^>]+>", " ", i).strip() for i in items]
+        listed = [i for i in listed if 3 <= len(i) <= 60]
+        counts["services"] = max(counts["services"], min(len(listed), 40))
+
+    return counts
+
+
 class ContactScraper:
     def __init__(self, headless=True):
         """Initialize the scraper with Chrome options"""
@@ -187,6 +273,11 @@ class ContactScraper:
                 if not contact_info['contact_names']:
                     contact_info['contact_names'] = self.extract_contact_names(visible_text)
             
+            # Counted last: `any(contact_info.values())` above decides whether
+            # to fall back to the home page, and insights are always truthy.
+            contact_info['insights'] = page_insights(page_text, visible_text)
+            contact_info['social_links'] = social_links(page_text)
+
         except TimeoutException:
             print(f"    Timeout loading {url}")
         except WebDriverException as e:

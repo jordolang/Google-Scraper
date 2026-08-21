@@ -115,7 +115,8 @@ def test_scrape_contacts_emits_scan_events():
 
     skipped = [e for e in terminal if e.status == "skipped"]
     assert len(skipped) == 1
-    assert skipped[0].name == "Reliable Circuit Pros"
+    # The one sample business with no website; its name follows the search term.
+    assert skipped[0].name == next(b.name for b in businesses if not b.website)
 
     done = [e for e in terminal if e.status == "done"]
     assert sum(1 for e in done if e.emails) == 3
