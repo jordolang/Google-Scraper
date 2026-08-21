@@ -11,6 +11,15 @@ The bump is driven by the commit subject: `feat:` is a feature, everything else
 (`fix:`, `docs:`, `chore:`, `refactor:`…) is a fix-level change. See
 [Versioning](README.md#️-versioning) for the full rules.
 
+## [1.3] - 2026-08-21
+
+### Added
+- Windows desktop app (PySide6 GUI) packaged as a single .exe
+
+### Fixed
+- address review findings across the desktop app
+- wait for the packaged .exe self-test instead of racing it
+
 ## [1.2] - 2026-08-07
 
 ### Added
