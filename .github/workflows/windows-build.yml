@@ -56,17 +56,52 @@ jobs:
         run: pyinstaller --clean --noconfirm packaging/LocalLeadScraperPro.spec
 
       - name: Check the executable launches
-        env:
-          LLSP_SELFTEST: "1"
         run: |
           $exe = "dist/LocalLeadScraperPro.exe"
           if (-not (Test-Path $exe)) { throw "the build produced no executable" }
           $size = [math]::Round((Get-Item $exe).Length / 1MB, 1)
           Write-Host "built $exe ($size MB)"
-          # --selftest builds the whole window offscreen and exits non-zero on
-          # any failure, so a broken bundle fails here rather than on a desk.
-          & $exe --selftest
-          if ($LASTEXITCODE -ne 0) { throw "self-test failed ($LASTEXITCODE)" }
+
+          # --selftest builds every screen offscreen and exits non-zero on any
+          # failure, so a broken bundle fails here rather than on someone's desk.
+          #
+          # Start-Process, not "& $exe": this is a windowed (GUI-subsystem)
+          # binary, so the call operator returns immediately without waiting and
+          # leaves $LASTEXITCODE empty, which reads as a failure even when the
+          # self-test passed.
+          $startArgs = @{
+            FilePath               = $exe
+            ArgumentList           = "--selftest"
+            PassThru               = $true
+            NoNewWindow            = $true
+            RedirectStandardOutput = "selftest-out.txt"
+            RedirectStandardError  = "selftest-err.txt"
+          }
+          $proc = Start-Process @startArgs
+          if (-not $proc.WaitForExit(180000)) {
+            $proc.Kill()
+            throw "self-test did not finish within 3 minutes"
+          }
+          $out = Get-Content selftest-out.txt -Raw -ErrorAction SilentlyContinue
+          $err = Get-Content selftest-err.txt -Raw -ErrorAction SilentlyContinue
+          if ($out) { Write-Host $out }
+          if ($err) { Write-Host $err }
+
+          $code = $proc.ExitCode
+          if ($null -eq $code) {
+            # Some Windows/PowerShell combinations do not surface an exit code
+            # for a detached GUI process; fall back to the success marker the
+            # self-test prints.
+            if ($out -and $out.StartsWith("OK")) {
+              Write-Host "self-test passed (no exit code reported)"
+            } else {
+              throw "self-test reported neither an exit code nor an OK marker"
+            }
+          } elseif ($code -ne 0) {
+            throw "self-test failed (exit $code)"
+          } else {
+            Write-Host "self-test passed"
+          }
 
       - uses: actions/upload-artifact@v4
         with:
