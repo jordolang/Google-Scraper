@@ -118,9 +118,7 @@ class MainWindow(QMainWindow):
                 page.on_close()
             except Exception:  # noqa: BLE001 - closing must not raise
                 pass
-        from . import settings_store
-
-        settings_store.save(self.state.settings)
+        self.state.persist()
         super().closeEvent(event)
 
 
@@ -141,7 +139,10 @@ def build_app(argv=None) -> tuple[QApplication, MainWindow]:
 
     state = AppState()
     if "--demo" in argv:
+        # A command-line override lasts for this run only. Persisting it would
+        # leave every later launch quietly in demo mode.
         state.settings["demo_mode"] = True
+        state.ephemeral.add("demo_mode")
     window = MainWindow(state)
     return app, window
 
@@ -164,18 +165,22 @@ def selftest(argv=None) -> int:
         except Exception as exc:  # noqa: BLE001 - that is the thing being tested
             problems.append(f"{key}: {type(exc).__name__}: {exc}")
     # The assets the app cannot work without.
-    from . import runtime, services
+    from . import runtime
 
-    if not services.available_templates():
-        problems.append("no email templates found")
+    # Look at the directory itself: available_templates() falls back to the
+    # full industry list when the folder is missing, which would let an
+    # unusable bundle pass this check.
+    templates = runtime.user_asset("email_templates")
+    rendered = sorted(Path(templates).glob("*.html")) if Path(templates).is_dir() else []
+    if not rendered:
+        problems.append(f"no email templates in {templates}")
     if not runtime.bundle_dir().exists():
         problems.append("bundle directory missing")
     for line in problems:
         print(f"FAIL {line}", file=sys.stderr)
     if problems:
         return 1
-    print(f"OK  {len(window.pages)} pages, "
-          f"{len(services.available_templates())} templates, "
+    print(f"OK  {len(window.pages)} pages, {len(rendered)} templates, "
           f"data dir {runtime.working_dir()}")
     return 0
 

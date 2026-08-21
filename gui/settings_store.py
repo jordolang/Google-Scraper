@@ -78,9 +78,29 @@ def load() -> Dict[str, Any]:
         return settings
     if isinstance(raw, dict):
         for key, value in raw.items():
-            if key in DEFAULTS and value is not None:
+            if key in DEFAULTS and _usable(value, DEFAULTS[key]):
                 settings[key] = value
     return settings
+
+
+def _usable(value, default) -> bool:
+    """Whether a stored value can stand in for its default.
+
+    A hand-edited (or half-written) settings file should cost the user that
+    one setting, not the whole app — so anything of the wrong shape is
+    ignored in favour of the default.
+    """
+    if value is None:
+        return False
+    if isinstance(default, bool):
+        return isinstance(value, bool)
+    if isinstance(default, (int, float)):
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if isinstance(default, list):
+        return isinstance(value, list)
+    if isinstance(default, str):
+        return isinstance(value, str)
+    return type(value) is type(default)
 
 
 def save(settings: Dict[str, Any]) -> Path | None:

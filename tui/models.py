@@ -196,9 +196,11 @@ class ScanEvent:
     @property
     def data_points(self) -> int:
         """Everything this scan turned up, counted — one headline number."""
+        # "contact_info" is the contact tally the pipeline stores for the
+        # category panel — counting it here as well would double it.
         counted = sum(
-            int(value) for value in self.insights.values()
-            if isinstance(value, (int, float))
+            int(value) for key, value in self.insights.items()
+            if key != "contact_info" and isinstance(value, (int, float))
         )
         return (
             len(self.emails) + len(self.phones) + len(self.contact_names) + counted

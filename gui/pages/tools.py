@@ -32,10 +32,10 @@ class ToolsPage(Page):
 
         self.root().addWidget(self._build_import(), 1)
 
+        self._lookup_failed = False
         self.runner.message.connect(lambda line: state.log("tools", line))
         self.runner.ended.connect(self._on_ended)
-        self.runner.failed.connect(
-            lambda message: QMessageBox.critical(self, "Lookup failed", message))
+        self.runner.failed.connect(self._on_failed)
 
     # -- phone lookup ------------------------------------------------------
     def _build_phone_lookup(self) -> Card:
@@ -69,7 +69,12 @@ class ToolsPage(Page):
             2: ("yellowpages",),
         }[self.source.currentIndex()]
         pipeline = self.state.make_pipeline()
+        # Numbers found here have to reach the file the leads came from,
+        # otherwise a lookup after an import updates nothing the user can see.
+        if self.state.listings_csv:
+            pipeline.last_listings_csv = self.state.listings_csv
         businesses = [lead.business for lead in targets]
+        self._lookup_failed = False
         self.lookup_button.setEnabled(False)
         self.lookup_status.setText(f"Looking up {len(targets)} number(s)…")
         self.state.set_status("Looking up numbers…")
@@ -80,10 +85,20 @@ class ToolsPage(Page):
 
         self.runner.start(job)
 
+    def _on_failed(self, message: str) -> None:
+        self._lookup_failed = True
+        self.state.log("tools", f"ERROR {message}")
+        QMessageBox.critical(self, "Lookup failed", message)
+
     def _on_ended(self) -> None:
         self.lookup_button.setEnabled(True)
-        self.lookup_status.setText("Done — see the Logs page for details.")
-        self.state.set_status("Ready")
+        # `ended` fires after `failed`, so it must not paint over the failure.
+        if self._lookup_failed:
+            self.lookup_status.setText("Failed — see the Logs page.")
+            self.state.set_status("Lookup failed")
+        else:
+            self.lookup_status.setText("Done — see the Logs page for details.")
+            self.state.set_status("Ready")
         self.state.leads_changed.emit()
 
     # -- pricing -----------------------------------------------------------
@@ -208,13 +223,27 @@ class ToolsPage(Page):
         except OSError as exc:
             QMessageBox.critical(self, "Could not read that file", str(exc))
             return
-        businesses = [Business.from_dict(row) for row in rows if row.get("name")]
-        for business in businesses:
+        import data_store
+
+        businesses = []
+        for row in rows:
+            if not row.get("name"):
+                continue
+            business = Business.from_dict(row)
             # A row that already carries contact details has been scanned.
             business.scanned = bool(business.emails or business.phones
                                     or business.contact_names)
+            # And one that was emailed stays emailed — otherwise re-loading an
+            # export puts delivered leads back into the call queue and the
+            # next campaign.
+            business.emailed = data_store.was_emailed(row)
+            businesses.append(business)
         added = self.state.add_businesses(
             businesses, businesses[0].search_term if businesses else "Imported")
+        # Remember where they came from so a later phone lookup writes back
+        # into the same file.
+        if "listings" in path.name.lower():
+            self.state.listings_csv = path
         self.state.log("tools", f"Loaded {len(added)} lead(s) from {path}")
         QMessageBox.information(
             self, "Loaded",

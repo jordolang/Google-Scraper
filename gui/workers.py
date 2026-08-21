@@ -32,6 +32,11 @@ class RunControl:
         self._resumed = threading.Event()
         self._resumed.set()
         self._stop = threading.Event()
+        # Cancellation fires exactly once. The pipeline saves partial results
+        # from its own `finally` blocks, and those call progress() too — if
+        # every later call kept raising, the stop would abort the very cleanup
+        # that writes the CSV.
+        self._raised = False
 
     # -- driven from the GUI thread --------------------------------------
     def pause(self) -> None:
@@ -63,14 +68,24 @@ class RunControl:
 
     # -- called from the worker thread ------------------------------------
     def checkpoint(self) -> None:
-        """Block while paused, raise :class:`Cancelled` once stopped."""
+        """Block while paused; raise :class:`Cancelled` the first time stopped.
+
+        After that first raise the run is unwinding through its cleanup, so
+        this becomes a no-op and lets the exports in those ``finally`` blocks
+        finish.
+        """
+        if self._raised:
+            return
         if self._stop.is_set():
+            self._raised = True
             raise Cancelled()
         # Wake up periodically so a stop during a pause is noticed promptly.
         while not self._resumed.wait(0.1):
             if self._stop.is_set():
+                self._raised = True
                 raise Cancelled()
         if self._stop.is_set():
+            self._raised = True
             raise Cancelled()
 
 

@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 
 from .. import services, settings_store
 from ..widgets.common import Card, Field, button, checkbox, hint, title
+from ..workers import JobRunner
 from . import Page
 
 
@@ -52,6 +53,15 @@ class SettingsPage(Page):
         actions.addWidget(self.reset_button)
         actions.addWidget(self.save_button)
         self.root().addLayout(actions)
+
+        # The SMTP test runs on a worker thread; these carry its result back.
+        self.runner = JobRunner(self)
+        self._tested_sender = None
+        self._tested_password = ""
+        self.runner.message.connect(lambda line: self.state.log("settings", line))
+        self.runner.finished.connect(self._on_test_finished)
+        self.runner.failed.connect(self._on_test_failed)
+        self.runner.ended.connect(self._on_test_ended)
         self.load()
 
     # -- sections ----------------------------------------------------------
@@ -168,7 +178,7 @@ class SettingsPage(Page):
 
     def save(self) -> None:
         self.state.password = self.password.text()
-        self.state.update_settings(
+        path = self.state.update_settings(
             from_email=self.from_email.text().strip(),
             reply_to=self.reply_to.text().strip(),
             smtp_username=self.smtp_username.text().strip(),
@@ -182,7 +192,15 @@ class SettingsPage(Page):
             license_tier=self.license_tier.currentText(),
             license_expires=self.license_expires.text().strip(),
         )
-        self.state.log("settings", "Settings saved.")
+        if path is None:
+            self.state.log("settings", "Could not write the settings file.")
+            QMessageBox.warning(
+                self, "Not saved",
+                f"The settings file could not be written to\n"
+                f"{settings_store.config_path()}\n\n"
+                "The values are active for this session only.")
+            return
+        self.state.log("settings", f"Settings saved to {path}.")
         QMessageBox.information(self, "Saved", "Settings saved.")
 
     def reset(self) -> None:
@@ -214,7 +232,14 @@ class SettingsPage(Page):
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
     def test_connection(self) -> None:
-        """Log in to the SMTP server and hang up — no message is sent."""
+        """Log in to the SMTP server and hang up — no message is sent.
+
+        On a thread: a TLS handshake against an unreachable server blocks for
+        the whole socket timeout, and doing that on the GUI thread freezes the
+        window.
+        """
+        if self.runner.running:
+            return
         password = self.password.text() or self.state.password
         if not password:
             QMessageBox.warning(self, "No password",
@@ -228,20 +253,27 @@ class SettingsPage(Page):
             smtp_port=int(self.smtp_port.value()) or None,
             smtp_username=self.smtp_username.text().strip() or None,
         )
+        self._tested_sender = sender
+        self._tested_password = password
         self.test_button.setEnabled(False)
         self.test_button.setText("Connecting…")
-        try:
+        self.state.set_status("Testing SMTP…")
+
+        def job(progress, on_event):
+            progress(f"Connecting to {sender.smtp_server}:{sender.smtp_port}…")
             ok = sender.connect(password)
             if ok:
                 sender.disconnect()
-        except Exception as exc:  # noqa: BLE001 - report whatever the server said
-            ok = False
-            self.state.log("settings", f"SMTP test failed: {exc}")
-        finally:
-            self.test_button.setEnabled(True)
-            self.test_button.setText("Test Connection")
+            return bool(ok)
+
+        self.runner.start(job)
+
+    def _on_test_finished(self, ok) -> None:
+        sender = self._tested_sender
+        if sender is None:
+            return
         if ok:
-            self.state.password = password
+            self.state.password = self._tested_password
             QMessageBox.information(
                 self, "Connected",
                 f"Authenticated with {sender.smtp_server}:{sender.smtp_port}.")
@@ -252,5 +284,19 @@ class SettingsPage(Page):
                 "For an iCloud custom domain, the username must be the Apple ID "
                 "that owns the domain and the password an app-specific one.")
 
+    def _on_test_failed(self, message: str) -> None:
+        self.state.log("settings", f"SMTP test failed: {message}")
+        QMessageBox.critical(self, "Could not connect", message)
+
+    def _on_test_ended(self) -> None:
+        self.test_button.setEnabled(True)
+        self.test_button.setText("Test Connection")
+        self.state.set_status("Ready")
+
     def on_show(self) -> None:
         self.load()
+
+    def on_close(self) -> None:
+        if self.runner.running:
+            self.runner.stop()
+            self.runner.wait(3000)

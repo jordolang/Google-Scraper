@@ -170,6 +170,50 @@ def test_empty_industry_field_is_refused(window, no_modal_dialogs):
     assert any(kind == "warning" for kind, _text in no_modal_dialogs.calls)
 
 
+def test_results_appear_while_the_search_is_still_running(window):
+    """Rows land in the table as they are found, not only at the end."""
+    dashboard = window.pages["dashboard"]
+    dashboard.location.setText("Columbus, Ohio, USA")
+    dashboard.industry.setCurrentText("Roofing Contractors")
+    dashboard.start()
+
+    seen_early = 0
+    waited = 0
+    while dashboard.runner.running and waited < 30000:
+        pump(50)
+        waited += 50
+        if window.state.leads and dashboard.runner.running:
+            seen_early = len(window.state.leads)
+            break
+    drain(dashboard.runner)
+
+    assert seen_early > 0, "no rows arrived before the run finished"
+    assert len(window.state.leads) == 5
+    # The end-of-industry sweep must not duplicate the streamed rows.
+    assert len({lead.key for lead in window.state.leads}) == 5
+
+
+def test_stopping_a_search_keeps_the_rows_already_found(window):
+    dashboard = window.pages["dashboard"]
+    dashboard.location.setText("Columbus, Ohio, USA")
+    dashboard.industry.setCurrentText("Roofing Contractors, Plumbers")
+    dashboard.start()
+
+    waited = 0
+    while dashboard.runner.running and waited < 30000:
+        pump(50)
+        waited += 50
+        if window.state.leads:
+            dashboard.stop()
+            break
+    drain(dashboard.runner)
+
+    kept = len(window.state.leads)
+    assert kept > 0, "stopping threw away everything the search had found"
+    assert "Stopped" in dashboard.stat_status.value.text()
+    assert any("stopped by user" in line for line in window.state.log_lines)
+
+
 def test_select_all_flows_into_the_scraper(window):
     run_search(window, "Roofing Contractors")
     dashboard = window.pages["dashboard"]
@@ -271,6 +315,52 @@ def test_listings_pagination_splits_the_rows(window):
     panel.page_size.setCurrentText("All")
     panel.refresh()
     assert len(panel._visible) == 10
+
+
+def test_selecting_in_one_grid_shows_in_the_other(window):
+    """Both grids read their ticks from the shared leads, not a stale copy."""
+    run_search(window, "Roofing Contractors")
+    window.go_to("listings")
+    page = window.pages["listings"]
+    listings, results = page.listings, page.results
+
+    listings._set_all(True)
+    pump(20)
+    assert len(window.state.selected_leads()) == 5
+    assert len(results.table.checked_rows()) == len(results._visible) == 5
+
+    # Un-ticking in the second grid must not be undone by the first one's
+    # stale view when it syncs back.
+    results.table.set_all_checked(False)
+    pump(20)
+    assert window.state.selected_leads() == []
+    assert listings.table.checked_rows() == []
+
+
+def test_imported_leads_keep_their_emailed_status(window, tmp_path):
+    import csv
+
+    import data_store
+
+    path = tmp_path / "previous.csv"
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(data_store.LISTING_FIELDS),
+                                extrasaction="ignore", restval="")
+        writer.writeheader()
+        writer.writerow({"name": "Already Contacted", "phone": "(614) 555-0100",
+                         "emailed": "yes", "emailed_to": "hi@example.com"})
+        writer.writerow({"name": "Never Contacted", "phone": "(614) 555-0101"})
+
+    tools = window.pages["tools"]
+    tools.import_path.setText(str(path))
+    tools._load_csv()
+
+    by_name = {lead.business.name: lead for lead in window.state.leads}
+    assert by_name["Already Contacted"].business.emailed is True
+    assert by_name["Never Contacted"].business.emailed is False
+    # The contacted one is kept out of the call queue.
+    queue = [lead.business.name for lead in window.state.callable_leads()]
+    assert queue == ["Never Contacted"]
 
 
 def test_data_results_export_writes_every_matching_row(window, tmp_path, monkeypatch):

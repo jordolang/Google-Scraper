@@ -34,6 +34,7 @@ from .models import Business, EmailMessage, ScanEvent
 
 ProgressFn = Callable[[str], None]
 ScanFn = Callable[[ScanEvent], None]
+BusinessFn = Callable[["Business"], None]
 
 
 def _noop(_msg: str) -> None:  # pragma: no cover - trivial
@@ -41,6 +42,10 @@ def _noop(_msg: str) -> None:  # pragma: no cover - trivial
 
 
 def _noop_event(_event: "ScanEvent") -> None:  # pragma: no cover - trivial
+    pass
+
+
+def _noop_business(_business: "Business") -> None:  # pragma: no cover - trivial
     pass
 
 
@@ -55,8 +60,26 @@ class Pipeline:
         headless: bool = True,
         data_root: Optional[Path] = None,
         templates_dir: str = "email_templates",
+        smtp_server: Optional[str] = None,
+        smtp_port: Optional[int] = None,
+        smtp_username: Optional[str] = None,
+        reply_to: str = "",
+        scan_delay: float = 1.0,
+        max_results: int = 0,
     ) -> None:
         self.from_email = from_email
+        # SMTP details, when the account needs more than the address implies —
+        # an iCloud custom domain authenticates as the Apple ID that owns it,
+        # not as the alias in the From: header. Left as None, EmailSender
+        # infers server and port from the address as before.
+        self.smtp_server = smtp_server or None
+        self.smtp_port = smtp_port or None
+        self.smtp_username = smtp_username or None
+        self.reply_to = reply_to
+        # Seconds to wait between websites, and the cap on listings per search
+        # (0 = no cap). Both are surfaced in the desktop app's settings.
+        self.scan_delay = max(0.0, scan_delay)
+        self.max_results = max(0, int(max_results))
         self.template_path = template_path
         # Directory of per-industry templates the email generator renders from.
         self.templates_dir = templates_dir
@@ -116,8 +139,6 @@ class Pipeline:
             [b.to_contact_row() for b in scanned], term, location, base=self.data_root
         )
         self.last_contacts_csv = path
-        if path:
-            progress(f"💾 Saved contacts for {len(scanned)} business(es) → {path}")
 
         # Fold the contact info back into the listings file so one CSV per
         # search carries the whole story.
@@ -135,6 +156,10 @@ class Pipeline:
                 if b.name
             },
         )
+        # Reported only once both files are written, so an interrupted run can
+        # never be cut off between the two.
+        if path:
+            progress(f"💾 Saved contacts for {len(scanned)} business(es) → {path}")
         return path
 
     def record_outreach(
@@ -175,6 +200,22 @@ class Pipeline:
             )
         return path
 
+    def _sender(self):
+        """Build the SMTP sender from the configured account.
+
+        Everything that talks to SMTP goes through here, so a connection test
+        and a real campaign cannot end up using different accounts.
+        """
+        from send_emails import EmailSender
+
+        return EmailSender(
+            from_email=self.from_email,
+            smtp_server=self.smtp_server,
+            smtp_port=self.smtp_port,
+            smtp_username=self.smtp_username,
+            reply_to=self.reply_to,
+        )
+
     def _safe_export_contacts(
         self, businesses: Sequence[Business], progress: ProgressFn
     ) -> None:
@@ -184,6 +225,24 @@ class Pipeline:
         except OSError as exc:  # pragma: no cover - filesystem dependent
             progress(f"⚠ could not save contacts CSV: {exc}")
 
+    def _finish_search(
+        self, businesses: Sequence[Business], field: str, location: str,
+        progress: ProgressFn,
+    ) -> None:
+        """Stamp and save whatever a search collected.
+
+        Called from a ``finally``: a search that is stopped part-way, or that
+        dies on a bad page, still files the listings it already opened rather
+        than throwing the work away.
+        """
+        if not businesses:
+            return
+        self._remember_search(businesses, field, location)
+        try:
+            self.export_listings(businesses, progress=progress)
+        except OSError as exc:  # pragma: no cover - filesystem dependent
+            progress(f"⚠ could not save listings CSV: {exc}")
+
     # -- steps ---------------------------------------------------------------
     def search(
         self,
@@ -192,7 +251,14 @@ class Pipeline:
         *,
         max_scrolls: int = 8,
         progress: ProgressFn = _noop,
+        on_business: BusinessFn = _noop_business,
     ) -> List[Business]:
+        """Search Google Maps.
+
+        ``on_business`` fires as each listing is extracted, so a caller can
+        show results while the run is still going — and keep the ones it has
+        already been handed if the run is stopped before it finishes.
+        """
         raise NotImplementedError
 
     def scrape_contacts(
@@ -252,31 +318,39 @@ class LivePipeline(Pipeline):
         *,
         max_scrolls: int = 8,
         progress: ProgressFn = _noop,
+        on_business: BusinessFn = _noop_business,
     ) -> List[Business]:
         from google_maps_scraper import GoogleMapsScraper
 
         progress(f"Launching browser ({'headless' if self.headless else 'visible'})…")
         scraper = GoogleMapsScraper(headless=self.headless)
+        # Filled as listings are opened, and saved in the finally below, so a
+        # stop or a crash keeps whatever the run had already collected.
+        businesses: List[Business] = []
         try:
             progress(f"Searching Google Maps for “{f'{field} {location}'.strip()}”…")
             scraper.search(field, location)
             # Reuse the scraper's URL collection + detail extraction, but stream
             # progress so the UI does not appear frozen.
             progress("Collecting business listings…")
-            self._scrape_with_progress(scraper, max_scrolls, progress)
-            businesses = [Business.from_dict(b) for b in scraper.businesses]
+            self._scrape_with_progress(
+                scraper, max_scrolls, progress, businesses, on_business
+            )
             progress(f"Found {len(businesses)} businesses.")
-            self._remember_search(businesses, field, location)
-            self.export_listings(businesses, progress=progress)
-            return businesses
+            return list(businesses)
         finally:
             scraper.close()
+            self._finish_search(businesses, field, location, progress)
 
-    def _scrape_with_progress(self, scraper, max_scrolls, progress) -> None:
+    def _scrape_with_progress(
+        self, scraper, max_scrolls, progress, businesses=None,
+        on_business: BusinessFn = _noop_business,
+    ) -> None:
         """Drive ``scraper.scrape_listings`` while emitting progress lines."""
         from selenium.webdriver.support import expected_conditions as EC
         from selenium.webdriver.common.by import By
 
+        collected = businesses if businesses is not None else []
         try:
             scraper.wait.until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, 'div[role="feed"]'))
@@ -294,6 +368,11 @@ class LivePipeline(Pipeline):
                 data = scraper._extract_business_details()
                 if data:
                     scraper.businesses.append(data)
+                    business = Business.from_dict(data)
+                    collected.append(business)
+                    # Hand it over before the next progress line, which is
+                    # where a stop request surfaces.
+                    on_business(business)
                     progress(f"[{idx}/{len(urls)}] {data.get('name', 'business')}")
             except Exception as exc:  # pragma: no cover - network dependent
                 progress(f"[{idx}/{len(urls)}] error: {str(exc)[:80]}")
@@ -362,7 +441,7 @@ class LivePipeline(Pipeline):
                         social_links=list(business.social_links),
                     )
                 )
-                time.sleep(1)
+                time.sleep(self.scan_delay)
             return list(businesses)
         finally:
             scraper.close()
@@ -425,7 +504,7 @@ class LivePipeline(Pipeline):
             else:
                 progress("    ✗ no phone number found")
                 on_event(ScanEvent(idx, total, name, status="skipped"))
-            time.sleep(1)
+            time.sleep(self.scan_delay)
 
     def build_message(
         self,
@@ -436,7 +515,6 @@ class LivePipeline(Pipeline):
         hero_image: str = "",
     ) -> EmailMessage:
         from generate_emails import EmailGenerator
-        from send_emails import EmailSender
 
         # Per-industry mode: no single template_path, render from templates_dir.
         generator = EmailGenerator(
@@ -450,7 +528,7 @@ class LivePipeline(Pipeline):
             pricing=pricing,
             hero_image=hero_image or business.hero_image,
         )
-        subject = EmailSender(from_email=self.from_email).generate_subject_line(
+        subject = self._sender().generate_subject_line(
             business.name, business.category
         )
         to_email = email or business.primary_email
@@ -465,9 +543,7 @@ class LivePipeline(Pipeline):
         dry_run: bool = False,
         progress: ProgressFn = _noop,
     ) -> dict:
-        from send_emails import EmailSender
-
-        sender = EmailSender(from_email=self.from_email)
+        sender = self._sender()
         stats = {"sent": 0, "failed": 0, "skipped": 0, "total": len(messages)}
         delivered: List[EmailMessage] = []
 
@@ -565,31 +641,39 @@ class DemoPipeline(Pipeline):
         *,
         max_scrolls: int = 8,
         progress: ProgressFn = _noop,
+        on_business: BusinessFn = _noop_business,
     ) -> List[Business]:
         progress(f"[demo] pretending to search for “{f'{field} {location}'.strip()}”…")
         businesses: List[Business] = []
-        for index, (_sample_name, cat, rating, addr, site, phone, _emails, _names) in enumerate(
-            self._SAMPLE
-        ):
-            time.sleep(0.15)
-            name = self._demo_name(field, index)
-            slug = self._demo_slug(name)
-            b = Business(
-                name=name,
-                category=field.title() if field else cat,
-                rating=rating, address=addr,
-                website=f"https://{slug}.example" if site else "",
-                phone=phone, reviews_count="42",
-                # The index lets the contact scan find this row's canned data
-                # even though the name changes with the search term.
-                url=f"https://maps.google.com/?demo={index}",
-            )
-            businesses.append(b)
-            progress(f"  found: {name}")
-        progress(f"[demo] found {len(businesses)} businesses.")
-        self._remember_search(businesses, field, location)
-        self.export_listings(businesses, progress=progress)
-        return businesses
+        # Honour the cap here rather than trimming afterwards, so the CSV the
+        # run exports matches the rows the caller is given.
+        sample = self._SAMPLE[: self.max_results] if self.max_results else self._SAMPLE
+        try:
+            for index, (_sample_name, cat, rating, addr, site, phone, _emails, _names) in enumerate(
+                sample
+            ):
+                time.sleep(0.15)
+                name = self._demo_name(field, index)
+                slug = self._demo_slug(name)
+                b = Business(
+                    name=name,
+                    category=field.title() if field else cat,
+                    rating=rating, address=addr,
+                    website=f"https://{slug}.example" if site else "",
+                    phone=phone, reviews_count="42",
+                    # The index lets the contact scan find this row's canned
+                    # data even though the name changes with the search term.
+                    url=f"https://maps.google.com/?demo={index}",
+                )
+                businesses.append(b)
+                on_business(b)
+                progress(f"  found: {name}")
+            progress(f"[demo] found {len(businesses)} businesses.")
+            return list(businesses)
+        finally:
+            # Same contract as the live pipeline: a stopped demo run keeps
+            # what it already produced.
+            self._finish_search(businesses, field, location, progress)
 
     def scrape_contacts(
         self,
@@ -599,6 +683,14 @@ class DemoPipeline(Pipeline):
         on_event: ScanFn = _noop_event,
     ) -> List[Business]:
         total = len(businesses)
+        try:
+            return self._demo_scan(businesses, total, progress, on_event)
+        finally:
+            # Same contract as the live pipeline: a stopped scan still files
+            # what it managed to collect.
+            self._safe_export_contacts(businesses, progress)
+
+    def _demo_scan(self, businesses, total, progress, on_event):
         for idx, business in enumerate(businesses, 1):
             label = business.name or "business"
             business.scanned = True
@@ -643,7 +735,6 @@ class DemoPipeline(Pipeline):
                     social_links=list(business.social_links),
                 )
             )
-        self._safe_export_contacts(businesses, progress)
         return list(businesses)
 
     def _sample_for(self, business):
@@ -690,6 +781,12 @@ class DemoPipeline(Pipeline):
 
         source = sources[0] if sources else "google"
         progress(f"[demo] looking up {len(targets)} phone number(s) on {' + '.join(sources)}…")
+        try:
+            return self._demo_lookup(businesses, targets, source, progress, on_event)
+        finally:
+            self._safe_export_contacts(businesses, progress)
+
+    def _demo_lookup(self, businesses, targets, source, progress, on_event):
         for idx, business in enumerate(targets, 1):
             name = business.name or "business"
             on_event(ScanEvent(idx, len(targets), name, status="scanning"))
@@ -702,7 +799,6 @@ class DemoPipeline(Pipeline):
             on_event(
                 ScanEvent(idx, len(targets), name, status="done", phones=[phone])
             )
-        self._safe_export_contacts(businesses, progress)
         return list(businesses)
 
     def build_message(

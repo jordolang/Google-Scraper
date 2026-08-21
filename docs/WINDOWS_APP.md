@@ -20,7 +20,12 @@ Every push that touches the app builds it on a real Windows runner:
    put it anywhere and double-click. There is no installer and nothing is
    written to `Program Files`.
 
-Tagged releases (`v*`) also get the .exe attached to the GitHub release.
+A `v*` tag also attaches the .exe to the GitHub release — but only when the
+tag is pushed by a person or a PAT. The automatic tag `version.yml` creates
+after a merge is pushed with `GITHUB_TOKEN`, and GitHub deliberately does not
+start new workflow runs for those, so that release comes without an
+attachment. Build one for it with **Actions → Windows App → Run workflow**, or
+take the artifact from the `main` run that produced the release.
 
 ### Option B — build it yourself on a Windows machine
 

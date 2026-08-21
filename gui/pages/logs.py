@@ -44,27 +44,40 @@ class LogsPage(Page):
         card.add(self.count)
         self.root().addWidget(card, 1)
 
-        state.logged.connect(lambda _source, _line: self._on_logged())
+        self._shown = 0
+        state.logged.connect(self._on_logged)
 
-    def _on_logged(self) -> None:
-        if self.isVisible():
-            self.refresh()
+    def _on_logged(self, _source: str, line: str) -> None:
+        """Append one line rather than re-rendering the whole buffer.
+
+        A long scrape emits thousands of lines; rebuilding the document for
+        each one made the page crawl and threw away the scroll position.
+        """
+        if not self.isVisible():
+            return
+        if self._matches(line):
+            self.view.append(line)
+            self._shown += 1
+            self.count.setText(
+                f"{self._shown} line(s) of {len(self.state.log_lines)}")
+
+    def _matches(self, line: str) -> bool:
+        source = self.source.currentText()
+        if source != "All" and f"[{source}]" not in line:
+            return False
+        needle = self.search.text().strip().lower()
+        return not needle or needle in line.lower()
 
     def _filtered(self):
-        source = self.source.currentText()
-        needle = self.search.text().strip().lower()
-        for line in self.state.log_lines:
-            if source != "All" and f"[{source}]" not in line:
-                continue
-            if needle and needle not in line.lower():
-                continue
-            yield line
+        return (line for line in self.state.log_lines if self._matches(line))
 
     def refresh(self) -> None:
+        """Rebuild the view — only needed when the filters or buffer change."""
         lines = list(self._filtered())
         self.view.setPlainText("\n".join(lines))
         bar = self.view.verticalScrollBar()
         bar.setValue(bar.maximum())
+        self._shown = len(lines)
         self.count.setText(f"{len(lines)} line(s) of {len(self.state.log_lines)}")
 
     def save(self) -> None:

@@ -128,7 +128,7 @@ class EmailCampaigns(QWidget):
         self.runner.message.connect(self._on_message)
         self.runner.finished.connect(self._on_finished)
         self.runner.failed.connect(self._on_failed)
-        self.runner.cancelled.connect(lambda: self.state.log("email", "Send stopped."))
+        self.runner.cancelled.connect(self._on_cancelled)
         self.runner.ended.connect(lambda: self._set_running(False))
         state.leads_changed.connect(self.refresh)
         state.selection_changed.connect(self.refresh)
@@ -400,7 +400,9 @@ class EmailCampaigns(QWidget):
         pipeline = self.state.make_pipeline()
         delay = float(self.delay.value())
         self._set_running(True)
-        self.progress.setRange(0, len(chosen))
+        # Two passes emit "[i/n]" lines — composing, then sending — so the bar
+        # spans both instead of filling up before a single email goes out.
+        self.progress.setRange(0, len(chosen) * (1 if dry_run else 2))
         self.progress.setValue(0)
         self.progress.setVisible(True)
         self.state.set_status("Sending…")
@@ -453,6 +455,18 @@ class EmailCampaigns(QWidget):
                 "password on the Settings page.")
         else:
             QMessageBox.information(self, "Campaign finished", summary)
+
+    def _on_cancelled(self) -> None:
+        """A stopped campaign still delivered some mail; show that it counted.
+
+        The pipeline records deliveries in a finally block, so the businesses
+        are already marked — this just repaints the grids that show them.
+        """
+        delivered = sum(1 for lead in self.state.leads if lead.business.emailed)
+        self.state.log(
+            "email", f"Send stopped — {delivered} business(es) logged as contacted.")
+        self.refresh()
+        self.state.leads_changed.emit()
 
     def _on_failed(self, message: str) -> None:
         self.state.log("email", f"ERROR {message}")

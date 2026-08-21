@@ -57,8 +57,9 @@ no credentials are needed. It is the fastest way to learn the app.
   username, not the alias in the From: header.
 * **Nothing shows in a table** — check the filter dropdown; it persists
   between visits.
-* The **Logs** page records every step of every run and can be saved to a file
-  to send on.
+* The **Logs** page shows this session's activity — the most recent few
+  thousand lines, held in memory and gone when the app closes. Save it to a
+  file from that page before quitting if you need to keep or send it.
 
 ## What this app cannot do
 

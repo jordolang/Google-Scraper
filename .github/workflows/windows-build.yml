@@ -8,20 +8,37 @@ name: Windows App
 on:
   push:
     branches: [main]
+    # A tag pushed by version.yml uses GITHUB_TOKEN, and GitHub does not start
+    # a new workflow run for those — so the release-attach path below fires
+    # only for a tag pushed by a person or a PAT. Every push to main still
+    # uploads the .exe as a run artifact, and workflow_dispatch builds one on
+    # demand. See the note in docs/WINDOWS_APP.md.
     tags: ["v*"]
-    paths:
+    paths: &build_inputs
+      # Everything the .exe is built from — the spec bundles the root scraper
+      # modules and salescall too, so a change there can break the package.
       - "gui/**"
       - "tui/**"
+      - "salescall/**"
       - "packaging/**"
       - "email_templates/**"
+      - "run_gui.py"
+      - "contact_scraper.py"
+      - "google_maps_scraper.py"
+      - "phone_lookup.py"
+      - "generate_emails.py"
+      - "send_emails.py"
+      - "data_store.py"
+      - "industries.py"
+      - "pricing_store.py"
+      - "email_config.py"
+      - "email_template.html"
+      - "pitch_script.md"
       - "requirements*.txt"
       - "VERSION"
       - ".github/workflows/windows-build.yml"
   pull_request:
-    paths:
-      - "gui/**"
-      - "packaging/**"
-      - "requirements*.txt"
+    paths: *build_inputs
   workflow_dispatch:
 
 jobs:

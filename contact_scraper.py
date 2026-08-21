@@ -62,7 +62,9 @@ def social_links(html):
         if not host:
             continue
         for social in _SOCIAL_HOSTS:
-            if host.endswith(social) and url not in found:
+            # "notfacebook.com" ends with "facebook.com" but is not it; only
+            # the domain itself or a subdomain of it counts.
+            if (host == social or host.endswith("." + social)) and url not in found:
                 found.append(url)
                 break
     return found
@@ -96,14 +98,40 @@ def page_insights(html="", text=""):
         counts[key] = hits
 
     if counts["services"]:
-        # A services section usually lists its offerings; count them so the
-        # UI can say "8 services found" rather than just "yes".
-        items = re.findall(r"<li[^>]*>(.*?)</li>", html, re.I | re.S)
-        listed = [re.sub(r"<[^>]+>", " ", i).strip() for i in items]
-        listed = [i for i in listed if 3 <= len(i) <= 60]
-        counts["services"] = max(counts["services"], min(len(listed), 40))
+        # A services section usually lists its offerings; count those so the UI
+        # can say "8 services found" rather than just "yes". Only the section
+        # itself is counted — counting every <li> on the page would score the
+        # nav and the footer as services.
+        listed = _service_items(html)
+        if listed:
+            counts["services"] = max(counts["services"], min(len(listed), 40))
 
     return counts
+
+
+def _services_section(html):
+    """The markup between a services heading and the next heading."""
+    match = re.search(
+        r"<h[1-4][^>]*>(?:(?!</h[1-4]>).)*?(?:service|what we do|our work)"
+        r"(?:(?!</h[1-4]>).)*?</h[1-4]>",
+        html, re.I | re.S,
+    )
+    if not match:
+        return ""
+    rest = html[match.end():]
+    following = re.search(r"<h[1-4][^>]*>", rest, re.I)
+    return rest[: following.start()] if following else rest
+
+
+def _service_items(html):
+    """List items inside the services section, cleaned of markup."""
+    section = _services_section(html)
+    if not section:
+        return []
+    items = re.findall(r"<li[^>]*>(.*?)</li>", section, re.I | re.S)
+    cleaned = [re.sub(r"<[^>]+>", " ", item) for item in items]
+    cleaned = [" ".join(item.split()) for item in cleaned]
+    return [item for item in cleaned if 3 <= len(item) <= 60]
 
 
 class ContactScraper:

@@ -81,9 +81,9 @@ class DashboardPage(Page):
         self.radius.addItems(RADIUS_CHOICES)
         self.radius.setCurrentText("25 miles")
         self.radius.setToolTip(
-            "Recorded with the run and used to pick how far to scroll the feed. "
-            "Google Maps has no hard radius filter — it ranks by distance from "
-            "the location you type."
+            "Recorded with the run, for your own reference. Google Maps has no "
+            "radius filter — it ranks results by distance from the location "
+            "you type, so this does not change what is scraped."
         )
 
         self.max_results = QComboBox()
@@ -229,11 +229,17 @@ class DashboardPage(Page):
             for term in terms:
                 on_event(("industry-start", term, None))
                 progress(f"── {term} ──")
+                # Deliver each listing as it is opened rather than waiting for
+                # the whole industry: the table fills as the run goes, and a
+                # Stop keeps everything already found instead of throwing the
+                # industry away.
+                # The cap is applied by the pipeline itself, so the CSV it
+                # exports matches what the table shows.
                 found = pipeline.search(
-                    term, location, max_scrolls=scrolls, progress=progress
+                    term, location, max_scrolls=scrolls, progress=progress,
+                    on_business=lambda business, t=term: on_event(
+                        ("business", t, business)),
                 )
-                if cap:
-                    found = list(found)[:cap]
                 on_event(("industry-done", term, found))
             return {"industries": len(terms), "demo": demo}
 
@@ -265,11 +271,18 @@ class DashboardPage(Page):
         if kind == "industry-start":
             self._current_term = term
             self.stat_status.set_value(f"Scraping {term}…")
+        elif kind == "business":
+            # One listing, straight off the browser. The pipeline already caps
+            # each search, and add_businesses de-duplicates, so the
+            # industry-done sweep below cannot double these up.
+            self.state.add_businesses([data], term)
+            self._paint_progress()
         elif kind == "industry-done":
             self._industry_progress[term] = 1.0
             self.state.add_businesses(data or [], term)
             self._paint_progress()
             self.state.log("search", f"{term}: {len(data or [])} listing(s)")
+
 
     def _paint_progress(self) -> None:
         if not self._industry_progress:
@@ -295,7 +308,11 @@ class DashboardPage(Page):
     def _on_cancelled(self) -> None:
         self.stat_status.set_value("Stopped")
         self.status_pill.set_state("Stopped", "warn")
-        self.state.log("search", "Scrape stopped by user.")
+        self.state.log(
+            "search",
+            f"Scrape stopped by user — kept {len(self.state.leads)} listing(s), "
+            "already written to CSV.",
+        )
 
     def _on_ended(self) -> None:
         self._set_running(False)

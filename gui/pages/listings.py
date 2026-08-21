@@ -43,6 +43,7 @@ class TablePanel(QWidget):
         self.export_prefix = export_prefix
         self._page = 0
         self._visible: List[Lead] = []
+        self._syncing = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -101,6 +102,9 @@ class TablePanel(QWidget):
         layout.addWidget(card, 1)
         state.leads_changed.connect(self.refresh)
         state.lead_updated.connect(lambda _lead: self.refresh())
+        # Both grids show the same leads. Without this the inactive one keeps
+        # stale ticks, and syncing from it would undo the other's selection.
+        state.selection_changed.connect(self._on_selection_changed)
 
     # -- data --------------------------------------------------------------
     def matching(self) -> List[Lead]:
@@ -164,7 +168,17 @@ class TablePanel(QWidget):
         checked = set(self.table.checked_rows())
         for index, lead in enumerate(self._visible):
             lead.selected = index in checked
-        self.state.selection_changed.emit()
+        # Don't repaint ourselves from the signal we are about to send; the
+        # table already shows what the user just clicked.
+        self._syncing = True
+        try:
+            self.state.selection_changed.emit()
+        finally:
+            self._syncing = False
+
+    def _on_selection_changed(self) -> None:
+        if not self._syncing:
+            self.refresh()
 
     def _set_all(self, selected: bool) -> None:
         self.state.set_selected(self.matching(), selected)
@@ -250,11 +264,21 @@ class ListingsPage(Page):
         footer.addStretch(1)
         scan_button = button("Scan Selected Websites  →")
         outreach_button = button("Start Outreach  →", "Primary")
-        scan_button.clicked.connect(lambda: self.navigate_requested.emit("scraper"))
+        scan_button.clicked.connect(self._scan_selected)
         outreach_button.clicked.connect(lambda: self.navigate_requested.emit("outreach"))
         footer.addWidget(scan_button)
         footer.addWidget(outreach_button)
         self.root().addLayout(footer)
+
+    def _scan_selected(self) -> None:
+        """The scraper falls back to scanning everything when nothing is
+        ticked, so the button has to insist on a selection first."""
+        if not self.state.selected_leads():
+            QMessageBox.information(
+                self, "Nothing selected",
+                "Tick the businesses you want scanned first.")
+            return
+        self.navigate_requested.emit("scraper")
 
     def on_show(self) -> None:
         self.listings.refresh()

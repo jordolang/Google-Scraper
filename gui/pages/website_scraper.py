@@ -36,6 +36,8 @@ class WebsiteScraperPage(Page):
         self._in_flight = 0
         self._data_points = 0
         self._current: Optional[Lead] = None
+        self._phase = "scan"
+        self._lookups_done = 0
 
         self.root().addWidget(title("2.  WEBSITE SCRAPER  —  SCRAPING WEBSITES FOR MORE INFO"))
 
@@ -127,9 +129,11 @@ class WebsiteScraperPage(Page):
         card = Card("Data Categories", spacing=3)
         self.category_boxes: Dict[str, object] = {}
         self.category_counts: Dict[str, QLabel] = {}
+        # Membership decides it: unticking everything is a deliberate choice
+        # and must survive a restart. (The stored default lists them all.)
         enabled = set(self.state.settings.get("data_categories", []))
         for key, label in INSIGHT_CATEGORIES:
-            box = checkbox(label, not enabled or label in enabled)
+            box = checkbox(label, label in enabled)
             box.stateChanged.connect(self._save_categories)
             count = QLabel("")
             count.setStyleSheet(f"color: {theme.MUTED}; font-size: 11px;")
@@ -214,6 +218,8 @@ class WebsiteScraperPage(Page):
             return
 
         self._by_name = {lead.business.name: lead for lead in self._targets}
+        self._phase = "scan"
+        self._lookups_done = 0
         self._started = datetime.now()
         self._completed = 0
         self._in_flight = 0
@@ -271,10 +277,37 @@ class WebsiteScraperPage(Page):
     def _on_message(self, line: str) -> None:
         self.log.append(f"{datetime.now():%H:%M:%S}  {line}")
         self.state.log("scan", line)
+        if line.startswith("Looking up phone numbers"):
+            self._phase = "lookup"
+
+    def _lead_for(self, event):
+        """The lead an event belongs to.
+
+        Scan events arrive in batch order, so the index identifies the lead
+        exactly — which matters when two businesses share a name and the name
+        alone would resolve to the wrong one.
+        """
+        index = getattr(event, "index", 0) - 1
+        if self._phase == "scan" and 0 <= index < len(self._targets):
+            return self._targets[index]
+        return self._by_name.get(event.name)
 
     def _on_scan_event(self, event) -> None:
         total = max(1, getattr(event, "total", 1))
-        lead = self._by_name.get(event.name)
+        lead = self._lead_for(event)
+        if self._phase == "lookup":
+            # Phone lookups run over a subset after the scan; counting them as
+            # completed websites would push the bar past the batch size.
+            if event.finished:
+                self._lookups_done += 1
+                self._data_points += len(event.phones)
+                self.ov_points.set_value(self._data_points)
+                if lead is not None:
+                    self.state.lead_updated.emit(lead)
+                self.current_label.setText(
+                    f"Phone lookup: {self._lookups_done}/{total}")
+            return
+
         if event.status == "scanning":
             self._in_flight = 1
             self._current = lead
@@ -290,6 +323,7 @@ class WebsiteScraperPage(Page):
             if lead is not None:
                 self.state.lead_updated.emit(lead)
 
+
         percent = int(round(min(1.0, self._completed / total) * 100))
         self.progress.setValue(percent)
         self.percent.setText(f"{percent}%")
@@ -303,8 +337,8 @@ class WebsiteScraperPage(Page):
     def _refresh_preview(self, event=None) -> None:
         """Show the current business's findings, field by field."""
         lead = self._current
-        if event is not None and event.name in self._by_name:
-            lead = self._by_name[event.name]
+        if event is not None:
+            lead = self._lead_for(event) or lead
         if lead is None:
             return
         b = lead.business

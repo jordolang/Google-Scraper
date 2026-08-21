@@ -18,7 +18,7 @@ import os
 import shutil
 import sys
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Optional
 
 APP_NAME = "LocalLeadScraperPro"
 
@@ -52,9 +52,14 @@ def app_data_dir() -> Path:
     return base / APP_NAME
 
 
+_RESOLVED_DIR: Optional[Path] = None
+
+
 def working_dir() -> Path:
     """The directory relative paths resolve against."""
-    return app_data_dir() if frozen() else Path.cwd()
+    if frozen():
+        return _RESOLVED_DIR or app_data_dir()
+    return Path.cwd()
 
 
 def user_asset(name: str) -> Path:
@@ -87,9 +92,13 @@ def seed_assets(names: Iterable[str] = SEEDED_ASSETS) -> None:
 def prepare() -> Path:
     """Get the process ready to run; returns the working directory."""
     if frozen():
-        target = app_data_dir()
-        target.mkdir(parents=True, exist_ok=True)
+        target = _writable_dir(app_data_dir())
         os.chdir(target)
+        # data_store anchors data/ to its own module directory, which inside a
+        # one-file bundle is the temp folder PyInstaller deletes on exit. Point
+        # it at the user's folder before anything writes a CSV.
+        os.environ.setdefault("GOOGLE_SCRAPER_DATA_DIR", str(target / "data"))
+        globals()["_RESOLVED_DIR"] = target
         seed_assets()
         # The pitch script is looked up relative to the tui package, which the
         # bundle flattens; point it at the editable copy instead.
@@ -102,6 +111,26 @@ def prepare() -> Path:
         except Exception:  # pragma: no cover - the fallback script still works
             pass
     return working_dir()
+
+
+def _writable_dir(preferred: Path) -> Path:
+    """``preferred`` if it can be created, else a temp folder that can.
+
+    A locked-down or roaming profile should not stop the app from starting;
+    it just means this session's files land somewhere else.
+    """
+    import tempfile
+
+    for candidate in (preferred, Path(tempfile.gettempdir()) / APP_NAME):
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            probe = candidate / ".write-test"
+            probe.touch()
+            probe.unlink()
+            return candidate
+        except OSError:
+            continue
+    return Path(tempfile.gettempdir())
 
 
 def env_files() -> list[Path]:

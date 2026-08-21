@@ -78,9 +78,15 @@ def call_tokens(business: Optional[Business], pricing: Optional[Dict[str, str]] 
     prices = dict(pricing or {})
     if not prices:
         try:
+            import industries
             import pricing_store
 
-            prices = pricing_store.prices_for("general")
+            # Quote what this trade is actually priced at, not the general row.
+            key = business.industry_key or industries.classify(
+                business.category, business.name)
+            prices = dict(pricing_store.prices_for(key))
+            # A per-business override beats the industry price.
+            prices.update({k: v for k, v in (business.price_overrides or {}).items() if v})
         except Exception:  # pragma: no cover - pricing.json is optional
             prices = {}
     return {
@@ -96,7 +102,12 @@ def call_tokens(business: Optional[Business], pricing: Optional[Dict[str, str]] 
 
 
 def _proof(business: Business) -> str:
-    """A short, true clause about this business, used inside objection replies."""
+    """A short clause about this business, used inside objection replies.
+
+    Every branch has to be something we actually know. Putting an unverified
+    claim in the caller's mouth — "your site isn't booking work" when nothing
+    was measured — is how a call goes wrong.
+    """
     if not business.website:
         return "you have no website at all, so every search for you ends on someone else's page"
     if business.rating and business.reviews_count:
@@ -104,7 +115,9 @@ def _proof(business: Business) -> str:
             f"you are sitting on {business.reviews_count} reviews at "
             f"{business.rating} stars and none of that shows up where buyers look"
         )
-    return "the site is not doing the one job it has, which is booking work"
+    if business.rating:
+        return f"you are rated {business.rating} and the site does not say so anywhere"
+    return "I had a look at the site before calling, and there is room to get more out of it"
 
 
 def fill(text: str, tokens: Dict[str, str]) -> str:

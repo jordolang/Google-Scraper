@@ -21,7 +21,13 @@ echo [1/5] Creating the build environment...
 if not exist .venv-build (
     python -m venv .venv-build || exit /b 1
 )
-call .venv-build\Scripts\activate.bat
+REM A half-created .venv-build would otherwise activate silently and let the
+REM commands below install into — and build against — the system Python.
+if not exist .venv-build\Scripts\python.exe (
+    echo [X] .venv-build is incomplete. Delete the folder and run this again.
+    exit /b 1
+)
+call .venv-build\Scripts\activate.bat || exit /b 1
 
 echo [2/5] Installing dependencies...
 python -m pip install --upgrade pip >nul

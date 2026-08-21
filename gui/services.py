@@ -21,39 +21,65 @@ from . import runtime
 
 
 class GuiLivePipeline(LivePipeline):
-    """Live pipeline that honours the dashboard's "max results" cap.
+    """Live pipeline that honours the "max results" cap while scraping.
 
     ``LivePipeline`` opens every listing the feed scrolls up. When the user
     asks for 50 per industry there is no point paying for the other 150, so the
     URL collection is trimmed before the detail pass starts.
     """
 
-    max_results: int = 0  # 0 = no cap
-
-    def _scrape_with_progress(self, scraper, max_scrolls, progress) -> None:
+    def _scrape_with_progress(self, scraper, max_scrolls, progress, businesses=None,
+                              on_business=None) -> None:
         if self.max_results > 0:
             collect = scraper._collect_all_business_urls
             limit = self.max_results
             scraper._collect_all_business_urls = lambda: collect()[:limit]
-        return super()._scrape_with_progress(scraper, max_scrolls, progress)
+        kwargs = {} if on_business is None else {"on_business": on_business}
+        return super()._scrape_with_progress(
+            scraper, max_scrolls, progress, businesses, **kwargs
+        )
+
+
+def data_root_for(settings: Dict) -> Optional[Path]:
+    """Where this run's CSVs belong.
+
+    An explicit export folder wins. Otherwise demo runs go to ``data/_demo``
+    so sample rows never mix with real scrapes, and live runs fall through to
+    data_store's own default.
+    """
+    configured = (settings.get("data_root") or "").strip()
+    if configured:
+        base = Path(configured)
+        return base / "_demo" if settings.get("demo_mode") else base
+    if settings.get("demo_mode"):
+        import data_store
+
+        return data_store.data_root() / "_demo"
+    return None
 
 
 def make_pipeline(settings: Dict) -> Pipeline:
     """Build the pipeline the current settings ask for."""
-    data_root = settings.get("data_root") or ""
     kwargs = {
         "from_email": settings.get("from_email") or "jordan@jlang.dev",
         "headless": bool(settings.get("headless", True)),
-        "data_root": Path(data_root) if data_root else None,
+        "data_root": data_root_for(settings),
         # Packaged builds keep their editable copies outside the bundle.
         "templates_dir": str(runtime.user_asset("email_templates")),
         "template_path": str(runtime.user_asset("email_template.html")),
+        # Without these a campaign would authenticate against whatever the
+        # From: address implies, even though Settings says otherwise — and the
+        # connection test, which does use them, would still pass.
+        "smtp_server": settings.get("smtp_server") or None,
+        "smtp_port": int(settings.get("smtp_port") or 0) or None,
+        "smtp_username": settings.get("smtp_username") or None,
+        "reply_to": settings.get("reply_to") or "",
+        "scan_delay": float(settings.get("scan_delay") or 1.0),
+        "max_results": int(settings.get("max_results") or 0),
     }
     if settings.get("demo_mode"):
         return DemoPipeline(**kwargs)
-    pipeline = GuiLivePipeline(**kwargs)
-    pipeline.max_results = int(settings.get("max_results") or 0)
-    return pipeline
+    return GuiLivePipeline(**kwargs)
 
 
 def scroll_budget(max_results: int) -> int:

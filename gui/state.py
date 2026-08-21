@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
 from PySide6.QtCore import QObject, Signal
@@ -57,6 +58,12 @@ class AppState(QObject):
     def __init__(self) -> None:
         super().__init__()
         self.settings: Dict = settings_store.load()
+        # Settings set for this run only (a --demo flag, say) and deliberately
+        # not written back to disk.
+        self.ephemeral: set = set()
+        # The listings CSV the current leads belong to, when they were loaded
+        # from a previous export rather than scraped this session.
+        self.listings_csv: Optional[Path] = None
         self.leads: List[Lead] = []
         self.log_lines: List[str] = []
         # Held in memory only, never written to disk.
@@ -68,10 +75,22 @@ class AppState(QObject):
         self.started_at = datetime.now()
 
     # -- settings ---------------------------------------------------------
-    def update_settings(self, **values) -> None:
+    def update_settings(self, **values) -> Optional[Path]:
+        """Apply settings and write them out; returns the file, or None if the
+        write failed so the caller can say so instead of claiming success."""
         self.settings.update(values)
-        settings_store.save(self.settings)
+        self.ephemeral.difference_update(values)  # explicitly set = no longer run-only
+        path = self.persist()
         self.settings_changed.emit()
+        return path
+
+    def persist(self) -> Optional[Path]:
+        """Write settings, leaving any run-only overrides out of the file."""
+        stored = dict(self.settings)
+        for key in self.ephemeral:
+            stored[key] = settings_store.DEFAULTS.get(key)
+        path = settings_store.save(stored)
+        return path
 
     def make_pipeline(self):
         return services.make_pipeline(self.settings)

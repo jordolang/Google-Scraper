@@ -458,7 +458,7 @@ python -m gui --demo       # tour it with sample data — no Chrome, no SMTP
 
 | How | What you do |
 | --- | --- |
-| **Download** | GitHub **Actions → Windows App →** newest run → the `LocalLeadScraperPro-windows` artifact. Tagged releases carry the `.exe` too. |
+| **Download** | GitHub **Actions → Windows App →** newest run → the `LocalLeadScraperPro-windows` artifact. A hand-pushed `v*` tag attaches it to the release as well; the automatic release tag cannot (see [docs](docs/WINDOWS_APP.md#getting-the-exe)). |
 | **Build it** | On Windows: `packaging\build_windows.bat` → `dist\LocalLeadScraperPro.exe` |
 | **From source** | `python -m gui` on any OS |
 

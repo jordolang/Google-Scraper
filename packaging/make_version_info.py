@@ -8,6 +8,7 @@ the rest is zero-padded.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -43,15 +44,31 @@ VSVersionInfo(
 '''
 
 
+#: The project's versions look like "1", "1.2" or "1.2a" (see CHANGELOG.md).
+VERSION_PATTERN = re.compile(r"^(\d+)(?:\.(\d+))*([a-z]*)$")
+
+
 def version_quad(version: str) -> tuple:
-    digits = "".join(char if char.isdigit() else "." for char in version)
-    parts = [int(part) for part in digits.split(".") if part]
-    parts += [0] * (4 - len(parts))
-    return tuple(parts[:4])
+    """Turn a project version into the four numbers Windows wants.
+
+    The letter suffix a project uses for fix-level releases has no place in a
+    VERSIONINFO resource, so it is dropped and the rest zero-padded. Anything
+    that is not a project version is rejected rather than silently turned into
+    plausible-looking but wrong metadata.
+    """
+    cleaned = (version or "").strip()
+    if not VERSION_PATTERN.match(cleaned):
+        raise ValueError(
+            f"{cleaned!r} is not a project version (expected 1, 1.2 or 1.2a)")
+    numbers = [int(part) for part in re.findall(r"\d+", cleaned)]
+    if len(numbers) > 4:
+        raise ValueError(f"{cleaned!r} has more than four version parts")
+    numbers += [0] * (4 - len(numbers))
+    return tuple(numbers[:4])
 
 
 def main() -> int:
-    version = (ROOT / "VERSION").read_text(encoding="utf-8").strip() or "0.0"
+    version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
     out = ROOT / "packaging" / "version_info.txt"
     out.write_text(
         TEMPLATE.format(quad=version_quad(version), version=version), encoding="utf-8")
