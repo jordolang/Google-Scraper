@@ -5,6 +5,7 @@ Features advance the number by a tenth (1.1 → 1.2); fixes advance the letter
 """
 
 from datetime import date
+from pathlib import Path
 
 import pytest
 
@@ -200,3 +201,81 @@ def test_main_dry_run_changes_nothing(tmp_path):
 
     assert version_file.read_text().strip() == "1.2"
     assert changelog.read_text() == "# Changelog\n"
+
+
+# --------------------------------------------------------------------------- #
+#  release wiring
+# --------------------------------------------------------------------------- #
+def _workflow(name):
+    yaml = pytest.importorskip("yaml")
+    text = (Path(__file__).resolve().parent.parent
+            / ".github" / "workflows" / name).read_text(encoding="utf-8")
+    loaded = yaml.safe_load(text)
+    # PyYAML parses a bare `on:` key as the boolean True.
+    loaded["on"] = loaded.get("on", loaded.get(True))
+    return loaded
+
+
+def test_tagging_a_release_also_builds_and_publishes_the_windows_exe():
+    """The release must carry the .exe, and only one wiring can deliver it.
+
+    A tag pushed with GITHUB_TOKEN starts no new workflow run, so the Windows
+    build cannot be triggered by the tag itself — version.yml has to call it
+    inside the same run. If that call is dropped, releases silently ship with
+    no Windows download.
+    """
+    version = _workflow("version.yml")
+    windows = _workflow("windows-build.yml")
+
+    job = version["jobs"]["windows"]
+    assert job["uses"] == "./.github/workflows/windows-build.yml"
+    assert job["with"]["tag"] == "${{ needs.bump.outputs.tag }}"
+    assert job["permissions"]["contents"] == "write"
+
+    # The tag it passes only exists when a release was actually cut.
+    assert version["jobs"]["bump"]["outputs"]["tag"]
+    assert job["if"].strip() == "needs.bump.outputs.tag != ''"
+
+    # And the called workflow accepts it and publishes with it.
+    assert "workflow_call" in windows["on"]
+    assert "tag" in windows["on"]["workflow_call"]["inputs"]
+    publish = [step for step in windows["jobs"]["build"]["steps"]
+               if str(step.get("uses", "")).startswith("softprops/action-gh-release")]
+    assert len(publish) == 1, "exactly one step should publish the release"
+    assert publish[0]["with"]["tag_name"] == "${{ env.RELEASE_TAG }}"
+    assert "LocalLeadScraperPro.exe" in publish[0]["with"]["files"]
+
+
+def test_the_windows_build_has_no_paths_filtered_tag_trigger():
+    """A push trigger's `paths` filter applies to tag pushes as well.
+
+    A tag push changes no files, so it can never satisfy the filter — a
+    `tags:` entry sitting next to these paths looks like it publishes releases
+    and silently never runs. That is exactly how v1.5 came out with no .exe
+    attached. Releases come from workflow_call, the release event, or a manual
+    dispatch instead.
+    """
+    windows = _workflow("windows-build.yml")
+    push = windows["on"]["push"]
+    assert "paths" in push
+    assert "tags" not in push, (
+        "a tags: filter here cannot fire alongside paths: — publish releases "
+        "through workflow_call / release / workflow_dispatch instead")
+    assert windows["on"]["release"]["types"] == ["published"]
+
+
+def test_a_hand_published_release_gets_the_exe():
+    """Publishing a release in the UI should attach the build to it."""
+    windows = _workflow("windows-build.yml")
+    tag = windows["jobs"]["build"]["env"]["RELEASE_TAG"]
+    assert "github.event.release.tag_name" in tag
+    assert "inputs.tag" in tag
+
+
+def test_the_windows_build_checks_out_the_tag_it_was_asked_for():
+    """Otherwise it would package whatever main had moved on to."""
+    windows = _workflow("windows-build.yml")
+    checkout = windows["jobs"]["build"]["steps"][0]
+    assert checkout["uses"].startswith("actions/checkout")
+    assert checkout["with"]["ref"] == (
+        "${{ inputs.tag || github.event.release.tag_name || github.ref }}")
