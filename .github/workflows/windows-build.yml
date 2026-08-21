@@ -2,18 +2,21 @@ name: Windows App
 
 # Builds the desktop app into a single .exe on a real Windows runner —
 # PyInstaller cannot cross-compile, so this is how a Windows binary gets made
-# without a Windows machine. The artifact is attached to the run, and to the
-# release when the tag is pushed.
+# without a Windows machine. Every run uploads the .exe as an artifact; a run
+# that carries a tag also publishes the GitHub release with the .exe attached.
+#
+# version.yml calls this workflow after it tags a release. That call is the
+# path that matters: the tag it pushes uses GITHUB_TOKEN, and GitHub does not
+# start new workflow runs for those, so a tag-triggered build would never fire
+# on its own. Calling it from inside that same run sidesteps the restriction.
 
 on:
+  # Note there is deliberately no `tags:` here. A push trigger's `paths` filter
+  # applies to tag pushes too, and a tag push changes no files, so it can never
+  # match — a `tags: ["v*"]` entry alongside these paths silently never fires.
+  # Every route to a release is spelled out below instead.
   push:
     branches: [main]
-    # A tag pushed by version.yml uses GITHUB_TOKEN, and GitHub does not start
-    # a new workflow run for those — so the release-attach path below fires
-    # only for a tag pushed by a person or a PAT. Every push to main still
-    # uploads the .exe as a run artifact, and workflow_dispatch builds one on
-    # demand. See the note in docs/WINDOWS_APP.md.
-    tags: ["v*"]
     paths: &build_inputs
       # Everything the .exe is built from — the spec bundles the root scraper
       # modules and salescall too, so a change there can break the package.
@@ -39,15 +42,42 @@ on:
       - ".github/workflows/windows-build.yml"
   pull_request:
     paths: *build_inputs
+  # Someone publishing a release by hand gets the .exe attached to it.
+  release:
+    types: [published]
+  # ...or build and publish for an existing tag on demand.
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build and publish a release for (blank = just build)."
+        type: string
+        required: false
+        default: ""
+  # version.yml calls this after it tags a release.
+  workflow_call:
+    inputs:
+      tag:
+        description: "Tag to build and publish the release for, e.g. v1.3."
+        type: string
+        required: true
 
 jobs:
   build:
     runs-on: windows-latest
     timeout-minutes: 30
+    permissions:
+      contents: write  # to publish the release
+    env:
+      # The release this run is for, from whichever route started it; empty on
+      # an ordinary push or pull request, which only build the artifact.
+      RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Build the tagged commit itself, not whatever main has moved on to
+          # by the time this runs.
+          ref: ${{ inputs.tag || github.event.release.tag_name || github.ref }}
 
       - uses: actions/setup-python@v5
         with:
@@ -127,10 +157,25 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-      - name: Attach the exe to the release
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Publish the release with the exe attached
+        if: env.RELEASE_TAG != ''
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: ${{ env.RELEASE_TAG }}
           files: dist/LocalLeadScraperPro.exe
+          generate_release_notes: true
+          body: |
+            ## Local Lead Scraper Pro — Windows
+
+            Download **LocalLeadScraperPro.exe** below and double-click it.
+            No installer and no Python needed; Windows 10 or 11, 64-bit.
+
+            Live scraping needs Google Chrome installed. Sending needs an
+            app-specific password on the Settings page. Try **Demo mode**
+            (Settings → Scraping) first to tour every screen with neither.
+
+            Windows SmartScreen will warn on first run because the .exe is
+            unsigned — *More info* → *Run anyway*.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

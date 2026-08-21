@@ -20,12 +20,29 @@ Every push that touches the app builds it on a real Windows runner:
    put it anywhere and double-click. There is no installer and nothing is
    written to `Program Files`.
 
-A `v*` tag also attaches the .exe to the GitHub release — but only when the
-tag is pushed by a person or a PAT. The automatic tag `version.yml` creates
-after a merge is pushed with `GITHUB_TOKEN`, and GitHub deliberately does not
-start new workflow runs for those, so that release comes without an
-attachment. Build one for it with **Actions → Windows App → Run workflow**, or
-take the artifact from the `main` run that produced the release.
+Every release also carries the .exe. When a merge to `main` bumps the version,
+`version.yml` tags the release and then calls this workflow for that tag, which
+builds the executable and publishes the GitHub release with
+`LocalLeadScraperPro.exe` attached — so **Releases** is the place to send
+anyone who just wants to run the app:
+
+    https://github.com/jordolang/Google-Scraper/releases/latest
+
+There are three routes to a release, and none of them is a tag push:
+
+| Route | When |
+| --- | --- |
+| `version.yml` calls this workflow | A merge to `main` bumps the version — the normal path |
+| `release: [published]` | You create a release by hand in the GitHub UI |
+| **Actions → Windows App → Run workflow**, with a tag | Rebuilding or back-filling a release after the fact |
+
+A tag push drives none of it, for two separate reasons. GitHub starts no new
+workflow run for anything pushed with `GITHUB_TOKEN`, which is how
+`version.yml` pushes its tag. And a push trigger's `paths` filter applies to
+tag pushes too — a tag changes no files, so it can never match the filter, and
+a `tags: ["v*"]` entry beside those paths would look right while never firing
+once. That combination is why release `v1.5` was published with no `.exe` on
+it.
 
 ### Option B — build it yourself on a Windows machine
 

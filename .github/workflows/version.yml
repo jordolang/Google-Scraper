@@ -3,7 +3,8 @@ name: Version
 # Every push to main advances the version and records itself in CHANGELOG.md:
 # a feat: commit bumps the number by a tenth (1.1 → 1.2), anything else bumps
 # the letter (1.2 → 1.2a). The bumped files are committed back to main and the
-# release is tagged.
+# release is tagged — then the Windows app is built for that tag and published
+# as the GitHub release, with the .exe attached.
 
 on:
   push:
@@ -22,6 +23,10 @@ jobs:
     # Skip the workflow's own release commits, or it would version itself forever.
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
     runs-on: ubuntu-latest
+    outputs:
+      # Empty when this push had nothing to release, which keeps the Windows
+      # build below from running for a tag that was never created.
+      tag: ${{ steps.release.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -46,6 +51,7 @@ jobs:
           echo "version=$(cat VERSION)" >> "$GITHUB_OUTPUT"
 
       - name: Commit, tag, and push the release
+        id: release
         run: |
           VERSION="${{ steps.bump.outputs.version }}"
           git config user.name  "github-actions[bot]"
@@ -58,6 +64,23 @@ jobs:
           git commit -m "chore(release): v${VERSION} [skip ci]"
           git tag -a "v${VERSION}" -m "v${VERSION}"
           git push origin HEAD:main --follow-tags
+          echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Summary
         run: echo "Released v${{ steps.bump.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+
+  windows:
+    # Build the .exe for the tag just cut and publish the GitHub release.
+    #
+    # This has to be a workflow_call from inside this run. The tag above is
+    # pushed with GITHUB_TOKEN, and GitHub deliberately starts no new workflow
+    # run for those — so windows-build.yml's own `tags: ["v*"]` trigger never
+    # fires for an automatic release, and the release would ship without the
+    # Windows download.
+    needs: bump
+    if: needs.bump.outputs.tag != ''
+    uses: ./.github/workflows/windows-build.yml
+    permissions:
+      contents: write
+    with:
+      tag: ${{ needs.bump.outputs.tag }}
