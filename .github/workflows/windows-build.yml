@@ -63,8 +63,25 @@ on:
 
 jobs:
   build:
-    runs-on: windows-latest
-    timeout-minutes: 30
+    # Both Windows architectures. PyInstaller cannot cross-compile and neither
+    # can Qt, so an ARM64 executable has to be built on an ARM64 runner — which
+    # is the native one for recent Surface/Snapdragon machines. The x64 build
+    # still runs there under emulation, but slower.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: windows-latest
+            python_arch: x64
+            chromium: Win_x64
+          - arch: arm64
+            runner: windows-11-arm
+            python_arch: arm64
+            chromium: Win_Arm64
+    runs-on: ${{ matrix.runner }}
+    name: build (${{ matrix.arch }})
+    timeout-minutes: 60
     permissions:
       contents: write  # to publish the release
     env:
@@ -82,6 +99,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          architecture: ${{ matrix.python_arch }}
           cache: pip
 
       - name: Install dependencies
@@ -92,19 +110,44 @@ jobs:
       - name: Smoke-test the UI offscreen
         env:
           QT_QPA_PLATFORM: offscreen
-        run: pytest tests/test_gui.py -q
+        run: pytest tests/test_gui.py tests/test_gui_flow.py -q
+
+      - name: Scrape a live page with the real browser
+        # The runner ships Chrome, and driving it is the app's whole job — the
+        # offscreen suite would not have caught a bundle that cannot scrape.
+        # Non-blocking: a browser/driver hiccup on the runner must not fail a
+        # release, but it is worth seeing in the log.
+        continue-on-error: true
+        env:
+          QT_QPA_PLATFORM: offscreen
+          LLSP_LIVE_TESTS: "1"
+        run: pytest tests/test_live_scrape.py -q
 
       - name: Generate icon and version resource
         run: |
           python packaging/make_icon.py
           python packaging/make_version_info.py
 
+      - name: Fetch the Chromium payload
+        # Bundled so the app needs no browser installed. Browser and driver
+        # come from one snapshot revision, so they always match — which is why
+        # there is no separate chromedriver step: Chrome for Testing publishes
+        # no ARM64 Windows driver, and this pairing needs none.
+        run: python packaging/fetch_chromium.py --platform ${{ matrix.chromium }}
+
       - name: Build LocalLeadScraperPro.exe
         run: pyinstaller --clean --noconfirm packaging/LocalLeadScraperPro.spec
 
+      - name: Append the browser payload
+        # After PyInstaller, not inside it: one-file builds unpack everything
+        # they bundle on every launch, and that would add minutes to each start.
+        run: |
+          python packaging/append_payload.py dist/LocalLeadScraperPro.exe
+          Rename-Item dist/LocalLeadScraperPro.exe LocalLeadScraperPro-${{ matrix.arch }}.exe
+
       - name: Check the executable launches
         run: |
-          $exe = "dist/LocalLeadScraperPro.exe"
+          $exe = "dist/LocalLeadScraperPro-${{ matrix.arch }}.exe"
           if (-not (Test-Path $exe)) { throw "the build produced no executable" }
           $size = [math]::Round((Get-Item $exe).Length / 1MB, 1)
           Write-Host "built $exe ($size MB)"
@@ -118,16 +161,19 @@ jobs:
           # self-test passed.
           $startArgs = @{
             FilePath               = $exe
-            ArgumentList           = "--selftest"
+            # --with-browser unpacks the bundled Chromium and drives it, so a
+            # build that cannot run without an installed browser fails here.
+            ArgumentList           = "--selftest", "--with-browser"
             PassThru               = $true
             NoNewWindow            = $true
             RedirectStandardOutput = "selftest-out.txt"
             RedirectStandardError  = "selftest-err.txt"
           }
           $proc = Start-Process @startArgs
-          if (-not $proc.WaitForExit(180000)) {
+          # Unpacking a few hundred megabytes of browser takes a while.
+          if (-not $proc.WaitForExit(600000)) {
             $proc.Kill()
-            throw "self-test did not finish within 3 minutes"
+            throw "self-test did not finish within 10 minutes"
           }
           $out = Get-Content selftest-out.txt -Raw -ErrorAction SilentlyContinue
           $err = Get-Content selftest-err.txt -Raw -ErrorAction SilentlyContinue
@@ -152,8 +198,8 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: LocalLeadScraperPro-windows
-          path: dist/LocalLeadScraperPro.exe
+          name: LocalLeadScraperPro-windows-${{ matrix.arch }}
+          path: dist/LocalLeadScraperPro-${{ matrix.arch }}.exe
           if-no-files-found: error
           retention-days: 90
 
@@ -163,7 +209,7 @@ jobs:
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           name: ${{ env.RELEASE_TAG }}
-          files: dist/LocalLeadScraperPro.exe
+          files: dist/LocalLeadScraperPro-${{ matrix.arch }}.exe
           generate_release_notes: true
           body: |
             ## Local Lead Scraper Pro — Windows

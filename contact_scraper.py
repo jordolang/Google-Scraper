@@ -4,6 +4,7 @@ Website Contact Scraper
 Reads Google Maps CSV results and scrapes contact information from business websites
 """
 
+import os
 import csv
 import json
 import re
@@ -146,7 +147,22 @@ class ContactScraper:
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option('useAutomationExtension', False)
         
-        self.driver = webdriver.Chrome(options=options)
+        # Drive the browser the app bundled, when it unpacked one; falls back
+        # to whatever Chrome is installed otherwise.
+        bundled = os.environ.get("LLSP_CHROME_BINARY")
+        if bundled:
+            options.binary_location = bundled
+        # Hand Selenium the driver that shipped with the browser. Without an
+        # explicit service it runs Selenium Manager, which goes to the network
+        # — and publishes no driver at all for ARM64 Windows.
+        driver_path = os.environ.get("LLSP_CHROMEDRIVER")
+        service = None
+        if driver_path:
+            from selenium.webdriver.chrome.service import Service
+
+            service = Service(driver_path)
+
+        self.driver = webdriver.Chrome(service=service, options=options)
         self.driver.set_page_load_timeout(30)
         self.wait = WebDriverWait(self.driver, 10)
         
@@ -228,21 +244,65 @@ class ContactScraper:
         return list(set(filtered))  # Remove duplicates
 
     def extract_phones(self, text):
-        """Extract phone numbers from text"""
-        phones = []
+        """Extract phone numbers from text, one entry per real number.
+
+        The two patterns overlap: the international one also matches the tail
+        of a US number, so "(614) 555-0142" came back as both itself and
+        "614) 555-0142". De-duplicating on the text kept both, and the broken
+        one could end up first — i.e. the number on the call sheet. Match on
+        the digits instead, keep the best-punctuated form of each, and return
+        them in a stable order (``set`` made the CSV vary between runs).
+        """
+        spans = []
         for pattern in self.phone_patterns:
-            matches = pattern.findall(text)
-            phones.extend(matches)
-        
-        # Clean and deduplicate
-        cleaned = []
-        for phone in phones:
-            # Remove common prefixes and clean
-            phone = phone.strip()
-            if len(phone) >= 10:  # Minimum valid phone length
-                cleaned.append(phone)
-        
-        return list(set(cleaned))
+            for match in pattern.finditer(text):
+                candidate = match.group().strip()
+                digits = re.sub(r'\D', '', candidate)
+                # E.164 tops out at 15 digits. Anything longer is the
+                # international pattern running two numbers together — its
+                # separators include whitespace, so "6145550142 6145550199"
+                # matches as one twenty-digit "number" that belongs to nobody.
+                if 10 <= len(digits) <= 15:
+                    spans.append((match.start(), match.end(), candidate, digits))
+
+        def same_number(outer: str, inner: str) -> bool:
+            """Whether the longer match is the shorter one with a country code.
+
+            Only then is the inner span a duplicate. Two adjacent numbers
+            caught by one greedy match are not the same number, and dropping
+            them would lose a real contact.
+            """
+            return outer.endswith(inner) and len(outer) - len(inner) <= 3
+
+        # The US pattern matches "2079460958" out of "+44 2079460958"; its
+        # digits differ, so de-duplication alone would keep both.
+        whole = [
+            (start, candidate)
+            for index, (start, end, candidate, digits) in enumerate(spans)
+            if not any(other_start <= start and end <= other_end
+                       and (other_end - other_start) > (end - start)
+                       and same_number(other_digits, digits)
+                       for other, (other_start, other_end, _text, other_digits)
+                       in enumerate(spans) if other != index)
+        ]
+
+        found = {}
+        for start, candidate in whole:
+            digits = re.sub(r'\D', '', candidate)
+            # Key on every digit, so +44 20 7946 0958 and +33 20 7946 0958 stay
+            # two numbers — only the optional North American trunk 1 is the
+            # same number written two ways.
+            key = digits[1:] if len(digits) == 11 and digits[0] == "1" else digits
+            position, best = found.get(key, (start, ""))
+            found[key] = (min(position, start),
+                          candidate if len(candidate) > len(best) else best)
+
+        # Ordered by where each number appears in the page, not by which regex
+        # happened to match it first: the patterns run one after the other, so
+        # insertion order would put every US match ahead of an international
+        # one printed above it.
+        return [candidate for _position, candidate
+                in sorted(found.values(), key=lambda item: item[0])]
 
     def extract_contact_names(self, text):
         """Extract potential contact names from text"""

@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from .. import services, theme
+from .. import services, theme, runtime
 from ..state import Lead
 from ..widgets.common import (
     Card, DataTable, Field, Pill, Stat, button, hint, progress_bar, title,
@@ -226,6 +226,7 @@ class DashboardPage(Page):
         self.state.log("search", f"Searching {len(terms)} industry(ies) near {location or 'anywhere'}")
 
         def job(progress, on_event):
+            runtime.ensure_embedded_browser(progress)
             for term in terms:
                 on_event(("industry-start", term, None))
                 progress(f"── {term} ──")
@@ -300,10 +301,7 @@ class DashboardPage(Page):
         self.state.log("search", f"ERROR {message}")
         self.state.set_status("Scrape failed")
         QMessageBox.critical(
-            self, "Scrape failed",
-            f"{message}\n\nCheck the Logs page for the full trace. If Chrome is "
-            "missing, install Google Chrome or turn on Demo mode in Settings.",
-        )
+            self, "Scrape failed", f"{message}\n\n{services.explain_failure(message)}")
 
     def _on_cancelled(self) -> None:
         self.stat_status.set_value("Stopped")

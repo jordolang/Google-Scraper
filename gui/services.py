@@ -250,3 +250,52 @@ def default_export_dir(settings: Optional[Dict] = None) -> Path:
         return data_store.data_root()
     except Exception:  # pragma: no cover - depends on cwd permissions
         return Path.home()
+
+
+def explain_failure(message: str) -> str:
+    """Turn an exception message into advice that fits what actually failed.
+
+    A single catch-all hint ("install Chrome") sends people chasing the wrong
+    thing: a packaged build missing a module is our bug, not their setup, and
+    telling them to install a browser they already have wastes their time.
+    """
+    text = (message or "").lower()
+
+    if "no module named" in text:
+        return ("This build is missing one of its own components — that is a "
+                "packaging fault, not a problem with your machine. Please "
+                "report it with the module name above; Demo mode (Settings → "
+                "Scraping) still works in the meantime.")
+    # "unable to locate" alone would swallow NoSuchElementException, whose
+    # message is "Unable to locate element" — nothing to do with a browser.
+    if ("cannot find chrome" in text or "no chrome binary" in text
+            or "chrome not reachable" in text
+            or "unable to locate chrome" in text
+            or "browser has not been found" in text):
+        return ("Google Chrome was not found. Install Chrome, or turn on Demo "
+                "mode (Settings → Scraping) to explore the app without it.")
+    if "session not created" in text or "version" in text and "chromedriver" in text:
+        return ("Chrome and its driver do not match — this usually clears "
+                "after updating Google Chrome and trying again.")
+    if "timeout" in text or "timed out" in text:
+        return ("The page did not load in time. Check the connection and try "
+                "again; Google also slows down repeated scraping, so a short "
+                "wait often helps.")
+    if "err_internet_disconnected" in text or "dns" in text:
+        return "There is no internet connection reachable from this machine."
+    # Authentication specifically — not every SMTP error. A dropped
+    # connection mid-campaign is SMTPServerDisconnected, and telling someone
+    # their password is wrong when mail was already going out sends them to
+    # re-issue credentials for nothing.
+    if ("authentication failed" in text or "smtpauthentication" in text
+            or "535" in text or "534" in text
+            or ("auth" in text and "smtp" in text)):
+        return ("The mail server rejected the login. For an iCloud custom "
+                "domain the username is the Apple ID that owns the domain, and "
+                "the password must be an app-specific one.")
+    if "smtp" in text:
+        return ("The connection to the mail server broke. Anything already "
+                "sent is logged as contacted; check the Logs page to see how "
+                "far the campaign got before retrying the rest.")
+    return ("Check the Logs page for the full trace. If Chrome is missing, "
+            "install Google Chrome or turn on Demo mode in Settings.")

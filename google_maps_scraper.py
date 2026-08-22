@@ -4,6 +4,7 @@ Google Maps Business Scraper
 Scrapes business information including names, addresses, phone numbers, websites, etc.
 """
 
+import os
 import time
 import csv
 import json
@@ -32,7 +33,22 @@ class GoogleMapsScraper:
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option('useAutomationExtension', False)
         
-        self.driver = webdriver.Chrome(options=options)
+        # Drive the browser the app bundled, when it unpacked one; falls back
+        # to whatever Chrome is installed otherwise.
+        bundled = os.environ.get("LLSP_CHROME_BINARY")
+        if bundled:
+            options.binary_location = bundled
+        # Hand Selenium the driver that shipped with the browser. Without an
+        # explicit service it runs Selenium Manager, which goes to the network
+        # — and publishes no driver at all for ARM64 Windows.
+        driver_path = os.environ.get("LLSP_CHROMEDRIVER")
+        service = None
+        if driver_path:
+            from selenium.webdriver.chrome.service import Service
+
+            service = Service(driver_path)
+
+        self.driver = webdriver.Chrome(service=service, options=options)
         self.wait = WebDriverWait(self.driver, 10)
         self.businesses = []
         self.search_term = ""

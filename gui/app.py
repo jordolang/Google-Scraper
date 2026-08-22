@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import os
 import sys
 from pathlib import Path
@@ -147,6 +148,181 @@ def build_app(argv=None) -> tuple[QApplication, MainWindow]:
     return app, window
 
 
+#: Modules the app imports only when a feature is actually used — lazily,
+#: inside functions, so a packaged build can be missing them and still start.
+#: Every entry here has burned us or could: selenium resolves its chrome
+#: classes through a lazy string map that PyInstaller cannot follow, so a
+#: bundle can launch happily and then fail the moment Start Scraping is
+#: pressed. Importing them up front is what turns that into a build failure.
+RUNTIME_IMPORTS = (
+    "selenium",
+    "selenium.webdriver",
+    "selenium.webdriver.chrome.webdriver",
+    "selenium.webdriver.chrome.options",
+    "selenium.webdriver.chrome.service",
+    "selenium.webdriver.common.by",
+    "selenium.webdriver.common.keys",
+    "selenium.webdriver.support.ui",
+    "selenium.webdriver.support.expected_conditions",
+    "selenium.common.exceptions",
+    "bs4",
+    "lxml.etree",
+    "google_maps_scraper",
+    "contact_scraper",
+    "phone_lookup",
+    "generate_emails",
+    "send_emails",
+    "data_store",
+    "industries",
+    "pricing_store",
+    "email_config",
+    "tui.pitch_script",
+    "salescall.objections",
+    "shutil",
+    "smtplib",
+    "subprocess",
+    "email.mime.multipart",
+    "email.mime.text",
+    "csv",
+    "zipfile",
+    "webbrowser",
+)
+
+
+def _check_runtime_imports() -> list:
+    """Import everything the app reaches for lazily, and build a ChromeOptions.
+
+    A missing module here means a packaged app that starts fine and then dies
+    on the first real action.
+    """
+    problems = []
+    for name in RUNTIME_IMPORTS:
+        try:
+            importlib.import_module(name)
+        except Exception as exc:  # noqa: BLE001 - that is the thing being tested
+            problems.append(f"import {name}: {type(exc).__name__}: {exc}")
+
+    # The scrapers all start by configuring Chrome. Constructing the options
+    # object exercises selenium's lazy attribute map for real, which naming
+    # the submodules alone does not.
+    try:
+        from selenium import webdriver
+
+        options = webdriver.ChromeOptions()
+        options.add_argument("--headless=new")
+    except Exception as exc:  # noqa: BLE001
+        problems.append(f"webdriver.ChromeOptions(): {type(exc).__name__}: {exc}")
+    return problems
+
+
+def _check_pipeline_runs() -> list:
+    """Drive a whole demo run: search, scan, compose, export.
+
+    This is the app's actual job. It touches the CSV writer, the email
+    template renderer, the industry classifier and the pricing store, so a
+    bundle missing any of them fails here rather than in front of a customer.
+    """
+    import tempfile
+
+    problems = []
+    try:
+        from tui.pipeline import DemoPipeline
+
+        from . import services
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pipeline = DemoPipeline(data_root=root)
+            businesses = pipeline.search("Roofing Contractors", "Columbus, OH")
+            if not businesses:
+                problems.append("demo search returned nothing")
+            pipeline.scrape_contacts(businesses)
+            if pipeline.last_listings_csv is None or not pipeline.last_listings_csv.exists():
+                problems.append("the run wrote no listings CSV")
+
+            with_email = [b for b in businesses if b.has_email]
+            if not with_email:
+                problems.append("the demo scan produced no email addresses")
+            else:
+                message = pipeline.build_message(with_email[0])
+                if "<" not in message.html or not message.subject:
+                    problems.append("composing an email produced no rendered HTML")
+
+            # Rows are sequences of cells, not dicts. Passing dicts wrote the
+            # column name into the data row, and a size-only check happily
+            # passed it — so read the file back and look at the value.
+            rows = [["Acme"]]
+            csv_path = root / "selftest.csv"
+            services.export_csv(csv_path, ["name"], rows)
+            xlsx_path = root / "selftest.xlsx"
+            services.export_xlsx(xlsx_path, ["name"], rows)
+            for path in (csv_path, xlsx_path):
+                if not path.exists() or not path.stat().st_size:
+                    problems.append(f"export produced no {path.suffix} file")
+            written = csv_path.read_text(encoding="utf-8-sig").split()
+            if written != ["name", "Acme"]:
+                problems.append(f"CSV export wrote {written!r}, expected the row")
+            import zipfile
+
+            with zipfile.ZipFile(xlsx_path) as book:
+                sheet = book.read("xl/worksheets/sheet1.xml").decode("utf-8")
+            if "Acme" not in sheet:
+                problems.append("XLSX export did not contain the row")
+    except Exception as exc:  # noqa: BLE001 - that is the thing being tested
+        problems.append(f"demo pipeline: {type(exc).__name__}: {exc}")
+    return problems
+
+
+def _check_bundled_browser(problems: list) -> str:
+    """Unpack the embedded browser and drive it, if this build carries one.
+
+    This is the claim the packaging makes — that the .exe needs nothing
+    installed — so the build proves it rather than asserting it.
+    """
+    from . import runtime
+
+    payload = runtime.embedded_payload()
+    if payload is None:
+        return "no browser payload"
+    payload.close()
+
+    binary = runtime.ensure_embedded_browser(lambda line: print(f"    {line}"))
+    if binary is None or not Path(binary).exists():
+        problems.append("the browser payload did not unpack into a usable browser")
+        return "unpack failed"
+
+    try:
+        from selenium import webdriver
+        from selenium.webdriver.common.by import By
+
+        options = webdriver.ChromeOptions()
+        options.binary_location = str(binary)
+        for flag in ("--headless=new", "--no-sandbox", "--disable-dev-shm-usage",
+                     "--disable-gpu"):
+            options.add_argument(flag)
+        # The driver that shipped with this browser, named explicitly — the
+        # whole point is that nothing is fetched at run time.
+        driver_path = os.environ.get(runtime.CHROMEDRIVER_ENV)
+        if not driver_path:
+            problems.append("the payload unpacked no chromedriver")
+            return "no driver"
+        from selenium.webdriver.chrome.service import Service
+
+        driver = webdriver.Chrome(service=Service(driver_path), options=options)
+        try:
+            driver.get("data:text/html,<title>bundled</title><p id=x>ok</p>")
+            found = driver.find_element(By.ID, "x").text
+        finally:
+            driver.quit()
+        if found != "ok":
+            problems.append(f"the bundled browser returned {found!r}")
+    except Exception as exc:  # noqa: BLE001 - that is the thing being tested
+        problems.append(f"the bundled browser would not drive: "
+                        f"{type(exc).__name__}: {exc}")
+        return "drive failed"
+    return f"bundled browser at {Path(binary).name} drives"
+
+
 def selftest(argv=None) -> int:
     """Build the whole UI offscreen, visit every page, and report.
 
@@ -164,6 +340,15 @@ def selftest(argv=None) -> int:
             app.processEvents()
         except Exception as exc:  # noqa: BLE001 - that is the thing being tested
             problems.append(f"{key}: {type(exc).__name__}: {exc}")
+    problems.extend(_check_runtime_imports())
+    problems.extend(_check_pipeline_runs())
+    # Opt-in: unpacking a few hundred megabytes and launching a browser is far
+    # slower than the rest, so the quick self-test stays quick and the build
+    # asks for this explicitly.
+    browser = "not checked"
+    if "--with-browser" in list(argv or []):
+        browser = _check_bundled_browser(problems)
+
     # The assets the app cannot work without.
     from . import runtime
 
@@ -176,11 +361,26 @@ def selftest(argv=None) -> int:
         problems.append(f"no email templates in {templates}")
     if not runtime.bundle_dir().exists():
         problems.append("bundle directory missing")
+    # A packaged build has to carry a way to drive a browser without reaching
+    # for the network: either the appended Chromium payload (browser + matching
+    # driver) or, failing that, a bundled chromedriver for the machine's own
+    # Chrome. With neither, a first run downloads — the thing shipping them is
+    # meant to avoid.
+    if runtime.frozen():
+        payload = runtime.embedded_payload()
+        if payload is not None:
+            payload.close()
+        elif runtime.bundled_driver_dir() is None:
+            problems.append("this build carries neither a browser payload nor a "
+                            "chromedriver: run packaging/fetch_chromium.py")
     for line in problems:
         print(f"FAIL {line}", file=sys.stderr)
     if problems:
         return 1
+    driver = runtime.bundled_driver_version() or "none bundled"
     print(f"OK  {len(window.pages)} pages, {len(rendered)} templates, "
+          f"{len(RUNTIME_IMPORTS)} runtime imports, demo pipeline ran, "
+          f"chromedriver {driver}, browser: {browser}, "
           f"data dir {runtime.working_dir()}")
     return 0
 

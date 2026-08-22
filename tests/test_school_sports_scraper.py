@@ -13,8 +13,15 @@ from school_sports_scraper import SchoolSportsScraper
 
 @pytest.fixture
 def mock_driver():
-    """Create a mock Chrome WebDriver"""
-    with patch("school_sports_scraper.webdriver.Chrome") as mock_chrome:
+    """Create a mock Chrome WebDriver.
+
+    Patched on selenium itself, not on ``school_sports_scraper``: that module
+    imports selenium inside the method that needs it, so there is no
+    module-level ``webdriver`` attribute to patch — every test in this file
+    errored during setup on ``module 'school_sports_scraper' has no attribute
+    'webdriver'``.
+    """
+    with patch("selenium.webdriver.Chrome") as mock_chrome:
         driver = MagicMock()
         mock_chrome.return_value = driver
         driver.title = "Test High School - Home"

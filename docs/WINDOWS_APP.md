@@ -46,6 +46,85 @@ it.
 
 ### Option B — build it yourself on a Windows machine
 
+
+## What is inside the .exe, and what is not
+
+Everything the app needs is in the one file. Nothing is installed and nothing
+is downloaded — including the browser:
+
+| | |
+| --- | --- |
+| Python itself, PySide6, Selenium, BeautifulSoup, lxml | bundled |
+| The app, its email templates, the pitch script | bundled |
+| **chromedriver** | bundled — see below |
+| **Chromium** (the browser itself) | bundled |
+
+Nothing needs to be installed, not even a browser. The executable carries a
+Chromium build and the chromedriver from the same snapshot revision, so the two
+always match — the version-mismatch problem that normally comes with driving
+Chrome cannot arise.
+
+Chromium rather than Google Chrome: Chromium is the open-source project and can
+be redistributed inside another product; Google's Chrome binaries cannot. If a
+Chrome is already installed and you would rather drive that, delete the
+unpacked browser folder (below) and the app falls back to it.
+
+### How the browser rides along
+
+PyInstaller's one-file mode unpacks everything it bundles to a temp folder on
+*every* launch, so putting ~250 MB of browser in the bundle would add a long
+pause to every start. It is appended to the executable instead, after
+PyInstaller's own archive — zip finds its central directory from the end of a
+file, so the app can read its own payload, and the bootloader does not care
+what follows its archive.
+
+The first scrape unpacks it once to
+
+    %LOCALAPPDATA%\LocalLeadScraperPro\browser\<revision>\
+
+and says so in the progress log; every launch after that is immediate. Delete
+that folder to reclaim the space, or to force a fall back to an installed
+Chrome — it is rebuilt from the executable on the next run.
+
+### The bundled chromedriver
+
+Selenium normally downloads a driver the first time it runs ("Selenium
+Manager") — a download nobody asked for, that needs internet and fails behind a
+locked-down network. `packaging/fetch_chromedriver.py` puts one in the bundle
+at build time instead, and the app adds it to `PATH` at startup so Selenium
+finds it and downloads nothing.
+
+A driver only drives its own major version of Chrome, and Chrome updates
+itself. When the two do not match the app steps out of the way and lets
+Selenium fetch a matching driver — that needs the network, but it works, which
+beats refusing to run. Each release bundles the driver for the then-current
+stable Chrome, so the normal case stays offline.
+
+## Why the bundle collects selenium whole
+
+Selenium 4 resolves its driver classes through a lazy string map:
+
+```python
+"ChromeOptions": ("selenium.webdriver.chrome.options", "Options"),
+```
+
+Those module paths are strings in a dict, looked up by `__getattr__` when the
+attribute is first touched. PyInstaller's static analysis cannot see them, so a
+hand-written list of `hiddenimports` only ever contains the submodules someone
+remembered — and the resulting .exe starts perfectly, shows every screen, and
+then dies the moment Start Scraping is pressed:
+
+    ModuleNotFoundError: No module named 'selenium.webdriver.chrome.options'
+
+`collect_submodules("selenium")` in the spec is what prevents that, and
+`tests/test_gui.py::test_the_spec_collects_selenium_whole` fails if anyone
+replaces it with a hand-written list again.
+
+The same shape of bug is why `--selftest` imports `RUNTIME_IMPORTS` and runs a
+whole demo pipeline rather than only building the windows: anything imported
+lazily, inside a function, is invisible to the packager and therefore able to
+go missing without the build noticing.
+
 ```bat
 git clone https://github.com/jordolang/Google-Scraper
 cd Google-Scraper

@@ -243,7 +243,29 @@ def test_tagging_a_release_also_builds_and_publishes_the_windows_exe():
                if str(step.get("uses", "")).startswith("softprops/action-gh-release")]
     assert len(publish) == 1, "exactly one step should publish the release"
     assert publish[0]["with"]["tag_name"] == "${{ env.RELEASE_TAG }}"
-    assert "LocalLeadScraperPro.exe" in publish[0]["with"]["files"]
+    # One executable per architecture, both attached to the same release.
+    assert "LocalLeadScraperPro-${{ matrix.arch }}.exe" in publish[0]["with"]["files"]
+
+
+def test_both_windows_architectures_are_built():
+    """An ARM64 Windows machine should get a native build, not x64 emulation.
+
+    Neither PyInstaller nor Qt cross-compiles, so the ARM64 executable has to
+    be built on an ARM64 runner — there is no way to produce it from the x64
+    job.
+    """
+    windows = _workflow("windows-build.yml")
+    matrix = windows["jobs"]["build"]["strategy"]["matrix"]["include"]
+    by_arch = {entry["arch"]: entry for entry in matrix}
+
+    assert set(by_arch) == {"x64", "arm64"}
+    assert by_arch["arm64"]["runner"] == "windows-11-arm"
+    assert by_arch["x64"]["runner"] == "windows-latest"
+    # Each build must fetch the browser for its own architecture; an x64
+    # Chromium inside the ARM64 executable would defeat the point.
+    assert by_arch["arm64"]["chromium"] == "Win_Arm64"
+    assert by_arch["x64"]["chromium"] == "Win_x64"
+    assert by_arch["arm64"]["python_arch"] == "arm64"
 
 
 def test_the_windows_build_has_no_paths_filtered_tag_trigger():

@@ -531,6 +531,303 @@ def test_social_links_need_a_real_domain_match():
         "https://www.facebook.com/real", "https://linkedin.com/company/real"]
 
 
+def test_the_spec_collects_selenium_whole():
+    """Naming selenium submodules by hand ships a build that cannot scrape.
+
+    Selenium resolves its driver classes through a lazy string map that
+    PyInstaller cannot follow, so a hand-written list silently omits whatever
+    was not thought of — which is how a packaged build launched fine and then
+    died on "No module named 'selenium.webdriver.chrome.options'".
+    """
+    text = (Path(__file__).resolve().parent.parent
+            / "packaging" / "LocalLeadScraperPro.spec").read_text(encoding="utf-8")
+    # Comments explain the trap by quoting it, so read the code alone.
+    spec = "\n".join(line for line in text.splitlines()
+                     if not line.lstrip().startswith("#"))
+    assert 'collect_submodules("selenium")' in spec
+    for lazy in ("chrome.options", "chrome.webdriver", "chrome.service"):
+        assert f'"selenium.webdriver.{lazy}"' not in spec, (
+            f"selenium.webdriver.{lazy} is listed by hand; collect_submodules "
+            "covers it and cannot miss its siblings")
+
+
+def test_every_lazily_imported_module_is_checked_by_the_selftest():
+    """The self-test's import list must keep up with the code.
+
+    Anything imported inside a function is invisible to PyInstaller's analysis
+    and therefore a candidate for going missing from the bundle. If it is not
+    in RUNTIME_IMPORTS, nothing catches that before a user does.
+    """
+    import re
+
+    from gui.app import RUNTIME_IMPORTS
+
+    root = Path(__file__).resolve().parent.parent
+    lazy = set()
+    for path in sorted((root / "gui").rglob("*.py")) + [root / "tui" / "pipeline.py"]:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            # An import indented inside a function body, not at module level.
+            match = re.match(r"\s+from ([a-zA-Z_][\w.]*) import |\s+import ([\w.]+)", line)
+            if not match:
+                continue
+            name = (match.group(1) or match.group(2)).split(".")[0]
+            # winreg is Windows-only stdlib, imported behind an os.name
+            # guard, so it cannot be imported here to check.
+            if name in {"gui", "tui", "typing", "pathlib", "datetime", "PySide6",
+                        "__future__", "tempfile", "importlib", "re", "json", "os",
+                        "sys", "winreg"}:
+                continue
+            lazy.add(name)
+
+    checked = {name.split(".")[0] for name in RUNTIME_IMPORTS}
+    missing = sorted(lazy - checked)
+    assert not missing, (
+        f"lazily imported but not covered by the packaged self-test: {missing}")
+
+
+def test_failure_advice_matches_what_actually_failed():
+    """A build fault must not be reported as the user's missing browser.
+
+    The catch-all "install Chrome" hint is what sent someone chasing a browser
+    they already had when the real problem was a module missing from the
+    package.
+    """
+    build_fault = services.explain_failure(
+        "ModuleNotFoundError: No module named 'selenium.webdriver.chrome.options'")
+    assert "packaging fault" in build_fault
+    assert "Install Chrome" not in build_fault
+
+    assert "Chrome was not found" in services.explain_failure(
+        "WebDriverException: unable to locate Chrome binary")
+    assert "do not match" in services.explain_failure(
+        "session not created: This version of ChromeDriver only supports Chrome 140")
+    assert "did not load in time" in services.explain_failure("TimeoutException: timed out")
+    assert "app-specific" in services.explain_failure("SMTP authentication failed 535")
+    # Anything unrecognised still points at the logs.
+    assert "Logs page" in services.explain_failure("something unexpected")
+
+
+def test_advice_does_not_blame_chrome_or_the_password_too_readily():
+    """Two over-broad matches sent people to fix the wrong thing."""
+    # "Unable to locate element" is a page that changed, not a missing browser.
+    element = services.explain_failure(
+        "NoSuchElementException: Unable to locate element: div[role=feed]")
+    assert "Chrome was not found" not in element
+
+    # A dropped connection is not a rejected password: mail may already have
+    # gone out, and re-issuing credentials would be wasted effort.
+    dropped = services.explain_failure(
+        "SMTPServerDisconnected: Connection unexpectedly closed")
+    assert "app-specific" not in dropped
+    assert "already" in dropped
+    # A genuine rejection still says so.
+    assert "app-specific" in services.explain_failure(
+        "SMTPAuthenticationError: (535, b'Authentication failed')")
+
+
+def _phone_scraper():
+    """A ContactScraper with its patterns, but no browser."""
+    import re
+
+    import contact_scraper
+
+    scraper = contact_scraper.ContactScraper.__new__(contact_scraper.ContactScraper)
+    scraper.phone_patterns = [
+        re.compile(r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}'),
+        re.compile(r'\+?\d{1,3}[-.\s]?\(?\d{1,4}\)?[-.\s]?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,9}'),
+    ]
+    return scraper
+
+
+def test_one_phone_number_yields_one_entry():
+    """The two phone regexes overlap; a number must not appear twice.
+
+    "(614) 555-0142" matched the US pattern whole and the international one
+    from the digit after the bracket, so the scan produced a real number and a
+    malformed twin — and `set` ordering meant the twin could come first and
+    end up as the number on the call sheet.
+    """
+    scraper = _phone_scraper()
+
+    assert scraper.extract_phones("Call (614) 555-0142 today") == ["(614) 555-0142"]
+    # Two genuinely different numbers stay two, in the order they appear.
+    assert scraper.extract_phones(
+        "Office (614) 555-0142 or mobile 614-555-0199"
+    ) == ["(614) 555-0142", "614-555-0199"]
+    # A leading 1 is the same number, not another one.
+    assert scraper.extract_phones("1-800-555-0143 or 800-555-0143") == ["1-800-555-0143"]
+    assert scraper.extract_phones("no numbers here") == []
+    # Deterministic: the same text must not reorder between runs.
+    text = "Call (614) 555-0142 or (614) 555-0199"
+    assert scraper.extract_phones(text) == scraper.extract_phones(text)
+
+
+def test_a_partial_match_inside_a_longer_number_is_not_a_second_number():
+    """The US pattern matches the local part of a compact international
+    number, and its digits differ, so de-duplication alone kept both."""
+    scraper = _phone_scraper()
+    assert scraper.extract_phones("Call us on +44 2079460958 today") == [
+        "+44 2079460958"]
+
+
+def test_two_numbers_side_by_side_stay_two_numbers():
+    """Dropping a contained span must not swallow a neighbour.
+
+    The international pattern's separators include whitespace, so
+    "6145550142 6145550199" matches as one twenty-digit run. Discarding every
+    span inside a longer one then threw away both real numbers and kept the
+    glued nonsense — so containment only counts when the outer really is the
+    inner with a country code in front.
+    """
+    scraper = _phone_scraper()
+    assert scraper.extract_phones("6145550142 6145550199") == [
+        "6145550142", "6145550199"]
+    assert scraper.extract_phones("Call 6145550142 6145550199 now") == [
+        "6145550142", "6145550199"]
+
+
+def test_phones_come_back_in_the_order_the_page_lists_them():
+    """Not in the order the regexes happen to run.
+
+    The patterns are tried one after another, so a US number further down the
+    page used to jump ahead of an international one printed above it — the
+    call sheet came out in the wrong order.
+    """
+    scraper = _phone_scraper()
+    text = "International +44 20 7946 0958 first, then US (614) 555-0142."
+    assert scraper.extract_phones(text) == ["+44 20 7946 0958", "(614) 555-0142"]
+
+
+def test_two_countries_are_two_numbers():
+    """Keying on the last ten digits alone lost one of them.
+
+    +44 20 7946 0958 and +33 20 7946 0958 share their final ten digits but are
+    different phones, and dropping one silently removes a real contact.
+    """
+    scraper = _phone_scraper()
+    numbers = scraper.extract_phones(
+        "London +44 20 7946 0958 and Paris +33 20 7946 0958")
+    assert len(numbers) == 2, numbers
+
+
+def test_a_matching_bundled_driver_is_put_on_path(tmp_path, monkeypatch):
+    """Selenium checks PATH before it downloads, so this is what keeps a
+    first run offline."""
+    from gui import runtime
+
+    drivers = tmp_path / "drivers"
+    drivers.mkdir()
+    (drivers / "chromedriver.exe").write_text("binary", encoding="utf-8")
+    (drivers / "VERSION").write_text("141.0.7390.122\n", encoding="utf-8")
+
+    monkeypatch.setattr(runtime, "bundled_driver_dir", lambda: drivers)
+    monkeypatch.setattr(runtime, "installed_chrome_version", lambda: "141.0.7390.37")
+    monkeypatch.setenv("PATH", "/usr/bin")
+
+    assert runtime.use_bundled_driver() == drivers
+    import os
+
+    assert os.environ["PATH"].split(os.pathsep)[0] == str(drivers)
+
+
+def test_a_stale_bundled_driver_stands_aside(tmp_path, monkeypatch):
+    """A driver only drives its own major version of Chrome, and Chrome
+    updates itself. Forcing a mismatched driver would fail outright; standing
+    aside lets Selenium fetch one that works."""
+    from gui import runtime
+
+    drivers = tmp_path / "drivers"
+    drivers.mkdir()
+    (drivers / "chromedriver.exe").write_text("binary", encoding="utf-8")
+    (drivers / "VERSION").write_text("152.0.7977.54\n", encoding="utf-8")
+
+    monkeypatch.setattr(runtime, "bundled_driver_dir", lambda: drivers)
+    monkeypatch.setattr(runtime, "installed_chrome_version", lambda: "141.0.7390.37")
+    monkeypatch.setenv("PATH", "/usr/bin")
+
+    assert runtime.use_bundled_driver() is None
+    import os
+
+    assert str(drivers) not in os.environ["PATH"]
+
+
+def test_an_unknown_chrome_version_still_prefers_the_bundled_driver(tmp_path, monkeypatch):
+    """Not knowing is not a mismatch — working offline is the point."""
+    from gui import runtime
+
+    drivers = tmp_path / "drivers"
+    drivers.mkdir()
+    (drivers / "chromedriver.exe").write_text("binary", encoding="utf-8")
+    (drivers / "VERSION").write_text("141.0.7390.122\n", encoding="utf-8")
+
+    monkeypatch.setattr(runtime, "bundled_driver_dir", lambda: drivers)
+    monkeypatch.setattr(runtime, "installed_chrome_version", lambda: "")
+    monkeypatch.setenv("PATH", "/usr/bin")
+
+    assert runtime.use_bundled_driver() == drivers
+
+
+def test_the_browser_payload_is_read_from_the_executable_itself(tmp_path, monkeypatch):
+    """The browser rides appended to the .exe, and is read back out of it.
+
+    Zip finds its central directory from the end of a file, so an archive
+    appended after PyInstaller's own survives — that is what lets one file
+    carry a browser without unpacking it on every launch.
+    """
+    import json
+    import zipfile
+
+    from gui import runtime
+
+    fake_exe = tmp_path / "app.exe"
+    fake_exe.write_bytes(b"\x00" * 4096)          # stand-in for the program
+    payload = tmp_path / "payload.zip"
+    with zipfile.ZipFile(payload, "w") as archive:
+        archive.writestr("browser/manifest.json", json.dumps({"revision": "1"}))
+        archive.writestr("browser/chrome-win.zip", b"not a real browser")
+    with fake_exe.open("ab") as exe:
+        exe.write(payload.read_bytes())
+
+    monkeypatch.setattr(runtime, "frozen", lambda: True)
+    monkeypatch.setattr(runtime.sys, "executable", str(fake_exe))
+
+    found = runtime.embedded_payload()
+    assert found is not None
+    with found as archive:
+        assert "browser/manifest.json" in archive.namelist()
+
+
+def test_no_payload_means_use_the_installed_browser(tmp_path, monkeypatch):
+    """A build without a bundled browser must not pretend it has one."""
+    from gui import runtime
+
+    plain = tmp_path / "plain.exe"
+    plain.write_bytes(b"\x00" * 4096)
+    monkeypatch.setattr(runtime, "frozen", lambda: True)
+    monkeypatch.setattr(runtime.sys, "executable", str(plain))
+
+    assert runtime.embedded_payload() is None
+    monkeypatch.delenv(runtime.CHROME_BINARY_ENV, raising=False)
+    assert runtime.ensure_embedded_browser() is None
+
+
+def test_the_scrapers_drive_the_bundled_browser_when_there_is_one():
+    """Each scraper builds its own Chrome options, so each has to honour it."""
+    root = Path(__file__).resolve().parent.parent
+    for name in ("google_maps_scraper.py", "contact_scraper.py", "phone_lookup.py"):
+        source = (root / name).read_text(encoding="utf-8")
+        assert "LLSP_CHROME_BINARY" in source, f"{name} ignores the bundled browser"
+        assert "options.binary_location" in source, name
+
+
+def test_the_spec_ships_the_driver_folder():
+    """The exact datas entry, not just the word: a stray mention elsewhere
+    would satisfy a loose check while the driver never reached the bundle."""
+    spec = (Path(__file__).resolve().parent.parent
+            / "packaging" / "LocalLeadScraperPro.spec").read_text(encoding="utf-8")
+    assert '(os.path.join(SPEC_DIR, "drivers"), "drivers")' in spec
+
+
 # --------------------------------------------------------------------------- #
 #  packaging assets
 # --------------------------------------------------------------------------- #
