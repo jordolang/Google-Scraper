@@ -121,6 +121,30 @@ def test_a_push_of_only_fixes_is_a_letter_bump():
     assert next_version(Version.parse("1.4"), ["fix: a", "docs: b"]) == "1.4a"
 
 
+def test_a_bump_steps_over_a_version_that_is_already_tagged():
+    """v1.5 was released a day before v1.4, so the next number can be taken.
+
+    Landing on it fails `git tag` — and it fails *after* the version file has
+    been written and committed, so the release stops half-done. Stepping over
+    it in the same direction is what keeps the release moving.
+    """
+    taken = {"v1.4", "v1.5"}
+    assert next_version(Version.parse("1.4"), ["feat: macOS"], taken) == "1.6"
+    # And it keeps going for as long as it has to.
+    assert next_version(Version.parse("1.4"), ["feat: x"],
+                        {"v1.5", "v1.6", "v1.7"}) == "1.8"
+
+
+def test_a_fix_bump_steps_over_a_taken_letter():
+    assert next_version(Version.parse("1.4"), ["fix: a"], {"v1.4a"}) == "1.4b"
+
+
+def test_a_free_version_is_left_alone():
+    """Nothing changes when the obvious next number is available."""
+    assert next_version(Version.parse("1.4"), ["feat: a"], {"v1.4"}) == "1.5"
+    assert next_version(Version.parse("1.4"), ["fix: a"], set()) == "1.4a"
+
+
 # --------------------------------------------------------------------------- #
 #  the changelog
 # --------------------------------------------------------------------------- #
@@ -166,7 +190,19 @@ def test_new_releases_go_on_top_under_the_preamble():
 # --------------------------------------------------------------------------- #
 #  end to end
 # --------------------------------------------------------------------------- #
-def test_main_writes_the_version_and_the_changelog(tmp_path, capsys):
+@pytest.fixture
+def no_tags(monkeypatch):
+    """main() reads the repo's tags to skip taken versions.
+
+    That would make these tests depend on whichever tags happen to exist —
+    they are about what main() writes, so give it a clean slate. The skipping
+    itself is covered by its own tests above.
+    """
+    import scripts.bump_version as module
+    monkeypatch.setattr(module, "git_tags", set)
+
+
+def test_main_writes_the_version_and_the_changelog(tmp_path, capsys, no_tags):
     version_file = tmp_path / "VERSION"
     version_file.write_text("1.2c\n")
     changelog = tmp_path / "CHANGELOG.md"
@@ -186,7 +222,7 @@ def test_main_writes_the_version_and_the_changelog(tmp_path, capsys):
     assert "1.2c → 1.3  (feature" in capsys.readouterr().out
 
 
-def test_main_dry_run_changes_nothing(tmp_path):
+def test_main_dry_run_changes_nothing(tmp_path, no_tags):
     version_file = tmp_path / "VERSION"
     version_file.write_text("1.2\n")
     changelog = tmp_path / "CHANGELOG.md"
