@@ -878,13 +878,53 @@ def test_unpacking_keeps_symlinks_and_the_executable_bit():
         with zipfile.ZipFile(archive_path) as archive:
             _unpack(archive, out)
 
-    # Rebuilt outside the temp dir would be meaningless, so assert inside it.
+        # Rebuilt outside the temp dir would be meaningless, so assert inside.
         assert (out / "app/Versions/Current").is_symlink()
         assert (out / "app/Versions/Current").readlink().name == "1.0"
-        assert (out / "app/MacOS/Chromium").stat().st_mode & 0o111
+        # Windows has no execute bit — chmod there only toggles read-only —
+        # and the browser it unpacks carries no symlinks to need one.
+        if os.name != "nt":
+            assert (out / "app/MacOS/Chromium").stat().st_mode & 0o111
         # An ordinary file stays an ordinary file, and stays readable.
         assert (out / "app/Resources/note.txt").read_bytes() == b"plain file"
         assert not (out / "app/Resources/note.txt").is_symlink()
+
+
+def test_unpacking_survives_a_filesystem_that_cannot_make_symlinks(monkeypatch):
+    """Windows needs a privilege for symlinks that a normal account lacks.
+
+    No archive shipped there holds one, so this never fires in practice — but
+    raising mid-unpack would leave a half-written browser behind, which is a
+    far worse failure than copying what the link pointed at.
+    """
+    import stat
+    import tempfile
+    import zipfile
+
+    from gui.runtime import _unpack
+
+    def refuse(self, target):
+        raise OSError("symlinks need a privilege this account does not have")
+
+    monkeypatch.setattr(Path, "symlink_to", refuse)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        archive_path = root / "browser.zip"
+        with zipfile.ZipFile(archive_path, "w") as archive:
+            archive.writestr("app/real.txt", b"the real thing")
+            link = zipfile.ZipInfo("app/link.txt")
+            link.external_attr = (stat.S_IFLNK | 0o777) << 16
+            archive.writestr(link, "real.txt")
+
+        out = root / "out"
+        out.mkdir()
+        with zipfile.ZipFile(archive_path) as archive:
+            _unpack(archive, out)
+
+        assert (out / "app/real.txt").read_bytes() == b"the real thing"
+        # A copy, not a link, but the content is there either way.
+        assert (out / "app/link.txt").read_bytes() == b"the real thing"
 
 
 def test_unpacking_refuses_to_write_outside_its_folder():

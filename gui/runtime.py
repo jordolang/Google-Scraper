@@ -309,7 +309,17 @@ def _unpack(archive: "zipfile.ZipFile", destination: Path) -> None:
             target.parent.mkdir(parents=True, exist_ok=True)
             if target.is_symlink() or target.exists():
                 target.unlink()
-            target.symlink_to(archive.read(info).decode())
+            link = archive.read(info).decode()
+            try:
+                target.symlink_to(link)
+            except OSError:
+                # Windows needs a privilege for this that a normal account
+                # does not have. No archive we ship there holds a symlink, so
+                # this is a safety net: copy what it points at rather than
+                # abandoning the unpack half-done.
+                source = target.parent / link
+                if source.is_file():
+                    shutil.copyfile(source, target)
             continue
 
         if info.is_dir():
