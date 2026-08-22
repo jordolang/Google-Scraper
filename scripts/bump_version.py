@@ -110,14 +110,27 @@ def _next_letters(letters: str) -> str:
     return "a" + "".join(chars)
 
 
-def next_version(current: Version, subjects: list[str]) -> Version:
+def next_version(current: Version, subjects: list[str],
+                 taken: "set[str] | None" = None) -> Version:
     """The version a push of ``subjects`` lands on.
 
     One push is one bump: any feature in the batch makes it a feature bump.
+
+    ``taken`` are versions that already exist as tags. The numbering has not
+    always run in order — v1.5 was released a day before v1.4 — so the
+    obvious next number can already be spoken for, and tagging it fails the
+    release *after* the version file has been written. Stepping over a taken
+    version in the same direction keeps the release moving instead.
     """
-    if any(is_feature(subject) for subject in subjects):
-        return current.bump_feature()
-    return current.bump_fix()
+    feature = any(is_feature(subject) for subject in subjects)
+    step = Version.bump_feature if feature else Version.bump_fix
+    taken = {str(Version.parse(name)) for name in (taken or set())
+             if _VERSION_RE.match(str(name).strip().lstrip("vV"))}
+
+    upcoming = step(current)
+    while str(upcoming) in taken:
+        upcoming = step(upcoming)
+    return upcoming
 
 
 def _clean(subject: str) -> str:
@@ -173,6 +186,13 @@ def git_subjects(since_ref: str | None = None) -> list[str]:
     return [line for line in result.stdout.splitlines() if line.strip()]
 
 
+def git_tags() -> set[str]:
+    """Every tag in the repository, so a bump never lands on one twice."""
+    result = subprocess.run(["git", "tag", "--list"],
+                            capture_output=True, text=True, check=False)
+    return {line.strip() for line in result.stdout.splitlines() if line.strip()}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
@@ -191,7 +211,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     current = Version.parse(args.version_file.read_text())
-    upcoming = next_version(current, subjects)
+    upcoming = next_version(current, subjects, git_tags())
     kind = "feature" if upcoming.minor != current.minor else "fix"
     print(f"{current} → {upcoming}  ({kind}; {len(subjects)} commit(s))")
 
