@@ -288,7 +288,8 @@ def explain_failure(message: str) -> str:
     # their password is wrong when mail was already going out sends them to
     # re-issue credentials for nothing.
     if ("authentication failed" in text or "smtpauthentication" in text
-            or "535" in text or "534" in text or "auth" in text and "smtp" in text):
+            or "535" in text or "534" in text
+            or ("auth" in text and "smtp" in text)):
         return ("The mail server rejected the login. For an iCloud custom "
                 "domain the username is the Apple ID that owns the domain, and "
                 "the password must be an app-specific one.")

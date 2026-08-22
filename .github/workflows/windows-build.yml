@@ -111,6 +111,15 @@ jobs:
           python packaging/make_version_info.py
           # Ships inside the .exe so a first run needs no download.
           python packaging/fetch_chromedriver.py --platform win64
+          # A silently corrupt or wrong-version download would ship a driver
+          # that cannot start, so run it and check it says what we recorded.
+          $expected = (Get-Content packaging/drivers/VERSION -Raw).Trim()
+          $reported = (& packaging/drivers/chromedriver.exe --version)
+          if ($LASTEXITCODE -ne 0) { throw "the bundled chromedriver did not run" }
+          Write-Host "bundled: $reported (expected $expected)"
+          if ($reported -notmatch [regex]::Escape($expected)) {
+            throw "bundled chromedriver is $reported, expected $expected"
+          }
 
       - name: Build LocalLeadScraperPro.exe
         run: pyinstaller --clean --noconfirm packaging/LocalLeadScraperPro.spec

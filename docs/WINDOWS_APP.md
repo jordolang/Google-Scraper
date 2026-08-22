@@ -49,8 +49,10 @@ it.
 
 ## What is inside the .exe, and what is not
 
-Everything the app needs to run is in the one file. Nothing is downloaded, and
-nothing is installed:
+Everything the app needs to run is in the one file, and nothing is installed.
+Nothing is downloaded either, with one caveat spelled out under the driver
+below: if the bundled driver does not match the Chrome on the machine, Selenium
+fetches one that does.
 
 | | |
 | --- | --- |

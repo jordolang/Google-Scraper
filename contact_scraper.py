@@ -237,22 +237,37 @@ class ContactScraper:
         the digits instead, keep the best-punctuated form of each, and return
         them in a stable order (``set`` made the CSV vary between runs).
         """
-        found = {}
+        spans = []
         for pattern in self.phone_patterns:
             for match in pattern.finditer(text):
                 candidate = match.group().strip()
-                digits = re.sub(r'\D', '', candidate)
-                if len(digits) < 10:
-                    continue
-                # Key on every digit, so +44 20 7946 0958 and +33 20 7946 0958
-                # stay two numbers — only the optional North American trunk 1
-                # is the same number written two ways.
-                key = digits[1:] if len(digits) == 11 and digits[0] == "1" else digits
-                position, best = found.get(key, (match.start(), ""))
-                found[key] = (
-                    min(position, match.start()),
-                    candidate if len(candidate) > len(best) else best,
-                )
+                if len(re.sub(r'\D', '', candidate)) >= 10:
+                    spans.append((match.start(), match.end(), candidate))
+
+        # A span sitting entirely inside a longer one is the same number seen
+        # through a narrower pattern: the US pattern matches "2079460958" out
+        # of "+44 2079460958", which has different digits and so would survive
+        # de-duplication as a second, wrong number.
+        whole = [
+            (start, candidate)
+            for index, (start, end, candidate) in enumerate(spans)
+            if not any(other_start <= start and end <= other_end
+                       and (other_end - other_start) > (end - start)
+                       for other, (other_start, other_end, _text) in enumerate(spans)
+                       if other != index)
+        ]
+
+        found = {}
+        for start, candidate in whole:
+            digits = re.sub(r'\D', '', candidate)
+            # Key on every digit, so +44 20 7946 0958 and +33 20 7946 0958 stay
+            # two numbers — only the optional North American trunk 1 is the
+            # same number written two ways.
+            key = digits[1:] if len(digits) == 11 and digits[0] == "1" else digits
+            position, best = found.get(key, (start, ""))
+            found[key] = (min(position, start),
+                          candidate if len(candidate) > len(best) else best)
+
         # Ordered by where each number appears in the page, not by which regex
         # happened to match it first: the patterns run one after the other, so
         # insertion order would put every US match ahead of an international

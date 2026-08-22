@@ -662,6 +662,14 @@ def test_one_phone_number_yields_one_entry():
     assert scraper.extract_phones(text) == scraper.extract_phones(text)
 
 
+def test_a_partial_match_inside_a_longer_number_is_not_a_second_number():
+    """The US pattern matches the local part of a compact international
+    number, and its digits differ, so de-duplication alone kept both."""
+    scraper = _phone_scraper()
+    assert scraper.extract_phones("Call us on +44 2079460958 today") == [
+        "+44 2079460958"]
+
+
 def test_phones_come_back_in_the_order_the_page_lists_them():
     """Not in the order the regexes happen to run.
 
@@ -744,9 +752,11 @@ def test_an_unknown_chrome_version_still_prefers_the_bundled_driver(tmp_path, mo
 
 
 def test_the_spec_ships_the_driver_folder():
+    """The exact datas entry, not just the word: a stray mention elsewhere
+    would satisfy a loose check while the driver never reached the bundle."""
     spec = (Path(__file__).resolve().parent.parent
             / "packaging" / "LocalLeadScraperPro.spec").read_text(encoding="utf-8")
-    assert '"drivers"' in spec, "the driver folder must be bundled into the exe"
+    assert '(os.path.join(SPEC_DIR, "drivers"), "drivers")' in spec
 
 
 # --------------------------------------------------------------------------- #
