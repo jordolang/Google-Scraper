@@ -267,6 +267,69 @@ def _chrome_binary(root: Path) -> Optional[Path]:
     return None
 
 
+def _unpack(archive: "zipfile.ZipFile", destination: Path) -> None:
+    """Extract, keeping symlinks and the executable bit.
+
+    ``extractall`` does neither: it writes a symlink as an ordinary file
+    holding its target as text, and drops permissions. On macOS that breaks
+    the browser outright — a .app's framework layout *is* symlinks
+    ("Versions/Current" and friends), and every helper binary needs +x, so
+    Chromium unpacks looking complete and then exits the moment it launches.
+    """
+    root = destination.resolve()
+    for info in archive.infolist():
+        target = destination / info.filename
+        # A crafted archive must not write outside the folder we chose.
+        if not str(target.resolve().parent).startswith(str(root)):
+            continue
+        mode = info.external_attr >> 16
+
+        if stat.S_ISLNK(mode):
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if target.is_symlink() or target.exists():
+                target.unlink()
+            target.symlink_to(archive.read(info).decode())
+            continue
+
+        if info.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+            continue
+
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with archive.open(info) as source, target.open("wb") as handle:
+            shutil.copyfileobj(source, handle)
+        if mode & 0o111:
+            target.chmod(target.stat().st_mode | 0o755)
+
+
+def _resign(app: Path, say) -> None:
+    """Re-sign an unpacked .app, ad-hoc.
+
+    Apple Silicon refuses to run a binary whose signature does not match its
+    contents, and unpacking rewrites every file. The browser ships ad-hoc
+    signed, so re-applying the same kind of signature is what makes it
+    launchable again. Best effort: on a Mac without the tools, or on any other
+    platform, this simply does not apply.
+    """
+    if sys.platform != "darwin":
+        return
+    import shutil as _shutil
+    import subprocess
+
+    codesign = _shutil.which("codesign")
+    if not codesign:
+        return
+    try:
+        result = subprocess.run(
+            [codesign, "--force", "--deep", "--sign", "-", str(app)],
+            capture_output=True, text=True, timeout=300, check=False)
+    except Exception as exc:  # noqa: BLE001 - signing is a best-effort repair
+        say(f"⚠ could not re-sign the bundled browser: {exc}")
+        return
+    if result.returncode != 0:
+        say(f"⚠ re-signing the bundled browser said: {result.stderr.strip()[:200]}")
+
+
 def ensure_embedded_browser(progress=None) -> Optional[Path]:
     """Unpack the browser carried inside the executable, once.
 
@@ -312,7 +375,7 @@ def ensure_embedded_browser(progress=None) -> Optional[Path]:
                         # Read into memory: ZipFile needs to seek, and a
                         # member stream cannot.
                         with zipfile.ZipFile(io.BytesIO(inner.read())) as archive:
-                            archive.extractall(staging)
+                            _unpack(archive, staging)
                 # Only now is it complete — a half-written folder must not
                 # look like a finished one on the next run.
                 staging.rename(target)
@@ -325,6 +388,9 @@ def ensure_embedded_browser(progress=None) -> Optional[Path]:
     binary = _chrome_binary(target)
     if binary is None:
         return None
+    if sys.platform == "darwin":
+        # ".../Chromium.app/Contents/MacOS/Chromium" -> the bundle itself.
+        _resign(binary.parent.parent.parent, say)
     # Everything the app launches from here on drives this browser, and the
     # driver that shipped beside it — same build, so they always match.
     binary.chmod(binary.stat().st_mode | stat.S_IEXEC)
