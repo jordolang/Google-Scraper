@@ -13,8 +13,11 @@ scraping — Selenium drives the user's own browser.
 """
 
 import os
+import sys
 
 from PyInstaller.utils.hooks import collect_submodules
+
+MACOS = sys.platform == "darwin"
 
 SPEC_DIR = os.path.dirname(os.path.abspath(SPEC))
 ROOT = os.path.dirname(SPEC_DIR)
@@ -128,6 +131,28 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=os.path.join(SPEC_DIR, "app_icon.ico"),
-    version=os.path.join(SPEC_DIR, "version_info.txt"),
+    # Each platform wants its own icon format, and VERSIONINFO is a Windows
+    # resource — PyInstaller ignores it elsewhere, but be explicit.
+    icon=os.path.join(SPEC_DIR, "app_icon.icns" if MACOS else "app_icon.ico"),
+    version=None if MACOS else os.path.join(SPEC_DIR, "version_info.txt"),
 )
+
+if MACOS:
+    # A .app is what a Mac user expects to double-click: it carries the icon,
+    # the name in the menu bar and the Dock, and marks the process as a GUI
+    # app rather than a terminal program.
+    app = BUNDLE(
+        exe,
+        name="Local Lead Scraper Pro.app",
+        icon=os.path.join(SPEC_DIR, "app_icon.icns"),
+        bundle_identifier="dev.jlang.localleadscraperpro",
+        version=(open(rooted("VERSION")).read().strip()
+                 if os.path.exists(rooted("VERSION")) else "0.0"),
+        info_plist={
+            "NSHighResolutionCapable": True,
+            # The app drives its own bundled Chromium and writes CSVs under
+            # ~/Library; it never needs the camera, mic or contacts.
+            "LSApplicationCategoryType": "public.app-category.business",
+            "NSHumanReadableCopyright": "Jlang.dev",
+        },
+    )

@@ -251,10 +251,19 @@ def browser_dir() -> Path:
 
 
 def _chrome_binary(root: Path) -> Optional[Path]:
-    names = ("chrome.exe", "chrome", "Chromium.app")
-    for name in names:
+    """The executable to launch, wherever this platform keeps it.
+
+    macOS ships a bundle: the thing Selenium needs is the Mach-O binary
+    inside it, not the .app directory.
+    """
+    for found in root.rglob("Chromium.app"):
+        inner = found / "Contents" / "MacOS" / "Chromium"
+        if inner.is_file():
+            return inner
+    for name in ("chrome.exe", "chrome"):
         for found in root.rglob(name):
-            return found
+            if found.is_file():
+                return found
     return None
 
 

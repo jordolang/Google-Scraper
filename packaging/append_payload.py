@@ -32,6 +32,20 @@ def main() -> int:
     parser.add_argument("--payload", type=Path, default=PAYLOAD)
     args = parser.parse_args()
 
+    target = args.executable
+    if target.suffix == ".app" and target.is_dir():
+        # A macOS bundle is a directory; the payload goes on the binary
+        # inside it, which is what sys.executable points at when it runs.
+        inner = target / "Contents" / "MacOS" / target.stem
+        if not inner.is_file():
+            candidates = sorted((target / "Contents" / "MacOS").glob("*"))
+            if not candidates:
+                print(f"{target} holds no executable", file=sys.stderr)
+                return 1
+            inner = candidates[0]
+        print(f"{target.name} is a bundle; appending to {inner.name}")
+        args.executable = inner
+
     if not args.executable.exists():
         print(f"no executable at {args.executable}", file=sys.stderr)
         return 1

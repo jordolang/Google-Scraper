@@ -1,0 +1,155 @@
+name: macOS App
+
+# Builds the desktop app into a Mac .app bundle on a real Mac runner — neither
+# PyInstaller nor Qt cross-compiles, so each architecture is built on its own
+# machine. Every run uploads the bundle as an artifact; a run that carries a
+# tag also attaches it to the GitHub release.
+#
+# version.yml calls this workflow after it tags a release, for the same reason
+# as the Windows one: GitHub starts no workflow run for a tag pushed with
+# GITHUB_TOKEN, so a tag trigger would never fire.
+
+on:
+  push:
+    branches: [main]
+    paths: &build_inputs
+      - "gui/**"
+      - "tui/**"
+      - "salescall/**"
+      - "packaging/**"
+      - "email_templates/**"
+      - "run_gui.py"
+      - "contact_scraper.py"
+      - "google_maps_scraper.py"
+      - "phone_lookup.py"
+      - "generate_emails.py"
+      - "send_emails.py"
+      - "data_store.py"
+      - "industries.py"
+      - "pricing_store.py"
+      - "email_config.py"
+      - "email_template.html"
+      - "pitch_script.md"
+      - "requirements*.txt"
+      - "VERSION"
+      - ".github/workflows/macos-build.yml"
+  pull_request:
+    paths: *build_inputs
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build and publish a release for (blank = just build)."
+        type: string
+        required: false
+        default: ""
+  workflow_call:
+    inputs:
+      tag:
+        description: "Tag to build and publish the release for, e.g. v1.4."
+        type: string
+        required: true
+
+jobs:
+  build:
+    # macos-13 is the last Intel runner; macos-14 and later are Apple Silicon.
+    # PySide6 ships a universal2 wheel, so the Python side is identical — what
+    # differs is the machine, and the Chromium build that goes with it.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: intel
+            runner: macos-13
+            chromium: Mac
+          - arch: apple-silicon
+            runner: macos-14
+            chromium: Mac_Arm
+    runs-on: ${{ matrix.runner }}
+    name: build (${{ matrix.arch }})
+    timeout-minutes: 60
+    permissions:
+      contents: write  # to publish the release
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
+      BUNDLE: "Local Lead Scraper Pro.app"
+      ASSET: LocalLeadScraperPro-macos-${{ matrix.arch }}.zip
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.event.release.tag_name || github.ref }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-gui.txt
+
+      - name: Smoke-test the UI offscreen
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: pytest tests/test_gui.py tests/test_gui_flow.py -q
+
+      - name: Generate the icons
+        run: python packaging/make_icon.py
+
+      - name: Fetch the Chromium payload
+        # Bundled so the app needs no browser installed. Browser and driver
+        # come from one snapshot revision, so they always match.
+        run: python packaging/fetch_chromium.py --platform ${{ matrix.chromium }}
+
+      - name: Build the app bundle
+        run: pyinstaller --clean --noconfirm packaging/LocalLeadScraperPro.spec
+
+      - name: Append the browser payload
+        # After PyInstaller, not inside it: a one-file build unpacks everything
+        # it bundles on every launch, which would add minutes to each start.
+        run: python packaging/append_payload.py "dist/$BUNDLE"
+
+      - name: Check the app launches
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          binary="dist/$BUNDLE/Contents/MacOS/LocalLeadScraperPro"
+          if [ ! -x "$binary" ]; then
+            echo "the build produced no executable inside the bundle" >&2
+            ls -R "dist/$BUNDLE/Contents/MacOS" >&2 || true
+            exit 1
+          fi
+          echo "built $BUNDLE ($(du -sh "dist/$BUNDLE" | cut -f1))"
+          # --with-browser unpacks the bundled Chromium and drives it, so a
+          # build that cannot scrape fails here rather than on someone's Mac.
+          "$binary" --selftest --with-browser
+
+      - name: Zip the bundle
+        # A .app is a directory; releases carry single files, and zip is what
+        # preserves the executable bit and the bundle structure.
+        run: |
+          cd dist
+          ditto -c -k --sequesterRsrc --keepParent "$BUNDLE" "../$ASSET"
+          cd ..
+          echo "packed $ASSET ($(du -h "$ASSET" | cut -f1))"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LocalLeadScraperPro-macos-${{ matrix.arch }}
+          path: ${{ env.ASSET }}
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Publish the release with the app attached
+        if: env.RELEASE_TAG != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: ${{ env.RELEASE_TAG }}
+          files: ${{ env.ASSET }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

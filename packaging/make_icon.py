@@ -82,12 +82,38 @@ def write_ico(path: Path, sizes=SIZES) -> None:
     path.write_bytes(header + entries + payload)
 
 
+#: The sizes an .icns carries, and the four-character type each one is filed
+#: under. macOS picks whichever fits the Dock, Finder or the Cmd-Tab switcher.
+ICNS_TYPES = (
+    (16, b"icp4"), (32, b"icp5"), (64, b"icp6"),
+    (128, b"ic07"), (256, b"ic08"), (512, b"ic09"), (1024, b"ic10"),
+)
+
+
+def write_icns(path: Path) -> None:
+    """Pack the mark into a macOS .icns.
+
+    Written by hand for the same reason as the .ico: no iconutil here, and Qt
+    cannot write .icns at all. The format is a header plus a run of
+    type/length/PNG chunks, which is straightforward to assemble.
+    """
+    import struct
+
+    chunks = b""
+    for size, kind in ICNS_TYPES:
+        data = png_bytes(size)
+        chunks += kind + struct.pack(">I", len(data) + 8) + data
+    path.write_bytes(b"icns" + struct.pack(">I", len(chunks) + 8) + chunks)
+
+
 def main() -> int:
     app = QApplication.instance() or QApplication([])
     out_dir = Path(__file__).resolve().parent
     draw(256).save(str(out_dir / "app_icon.png"), "PNG")
     write_ico(out_dir / "app_icon.ico")
-    print(f"wrote {out_dir / 'app_icon.ico'} and {out_dir / 'app_icon.png'}")
+    write_icns(out_dir / "app_icon.icns")
+    print(f"wrote {out_dir / 'app_icon.ico'}, {out_dir / 'app_icon.icns'} "
+          f"and {out_dir / 'app_icon.png'}")
     del app
     return 0
 

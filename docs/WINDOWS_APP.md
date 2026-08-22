@@ -100,6 +100,36 @@ Selenium fetch a matching driver — that needs the network, but it works, which
 beats refusing to run. Each release bundles the driver for the then-current
 stable Chrome, so the normal case stays offline.
 
+## The Mac builds
+
+The same app, built as a `.app` bundle on real Mac runners — `macos-13` for
+Intel and `macos-14` for Apple Silicon, because neither PyInstaller nor Qt
+cross-compiles. PySide6 ships a `universal2` wheel, so the Python side is
+identical between them; what differs is the machine and the Chromium build
+that goes with it (`Mac` and `Mac_Arm` snapshots respectively).
+
+Releases carry them zipped, since a `.app` is a directory and a release asset
+is a single file:
+
+| File | For |
+| --- | --- |
+| `LocalLeadScraperPro-macos-apple-silicon.zip` | M1 and later |
+| `LocalLeadScraperPro-macos-intel.zip` | Intel Macs |
+
+Unzip, drag **Local Lead Scraper Pro** to Applications, and the first launch
+needs one extra step: the app is not signed with an Apple Developer
+certificate, so Gatekeeper refuses a plain double-click with "cannot be opened
+because the developer cannot be verified". **Right-click the app → Open →
+Open** once, and macOS remembers the choice. From the terminal the equivalent
+is:
+
+    xattr -dr com.apple.quarantine "/Applications/Local Lead Scraper Pro.app"
+
+Signing and notarising would remove that step; it needs a paid Apple Developer
+account and the certificate stored as repository secrets, which is a decision
+for whoever owns the account rather than something the build can do on its
+own.
+
 ## Why the bundle collects selenium whole
 
 Selenium 4 resolves its driver classes through a lazy string map:
