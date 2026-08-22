@@ -3,8 +3,9 @@ name: Version
 # Every push to main advances the version and records itself in CHANGELOG.md:
 # a feat: commit bumps the number by a tenth (1.1 → 1.2), anything else bumps
 # the letter (1.2 → 1.2a). The bumped files are committed back to main and the
-# release is tagged — then the Windows app is built for that tag and published
-# as the GitHub release, with the .exe attached.
+# release is tagged — then the desktop apps are built for that tag and
+# published as the GitHub release, with the Windows .exe files and the macOS
+# .app bundles attached.
 
 on:
   push:
@@ -68,6 +69,17 @@ jobs:
 
       - name: Summary
         run: echo "Released v${{ steps.bump.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+
+  macos:
+    # The Mac bundles for the same tag, on their own runners. Separate job, so
+    # a Mac runner queue cannot hold up the Windows release and vice versa.
+    needs: bump
+    if: needs.bump.outputs.tag != ''
+    uses: ./.github/workflows/macos-build.yml
+    permissions:
+      contents: write
+    with:
+      tag: ${{ needs.bump.outputs.tag }}
 
   windows:
     # Build the .exe for the tag just cut and publish the GitHub release.

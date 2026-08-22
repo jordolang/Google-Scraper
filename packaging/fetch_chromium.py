@@ -41,7 +41,10 @@ ARCHIVES = {
     "Win_x64": ("chrome-win.zip", ("chromedriver_win32.zip", "chromedriver_win64.zip")),
     "Win_Arm64": ("chrome-win.zip", ("chromedriver_win64.zip", "chromedriver_win32.zip")),
     "Linux_x64": ("chrome-linux.zip", ("chromedriver_linux64.zip",)),
+    # Apple Silicon is "Mac_Arm", not Mac_Arm64 — both ship the same archive
+    # names, so only the platform prefix differs.
     "Mac": ("chrome-mac.zip", ("chromedriver_mac64.zip",)),
+    "Mac_Arm": ("chrome-mac.zip", ("chromedriver_mac64.zip",)),
 }
 
 

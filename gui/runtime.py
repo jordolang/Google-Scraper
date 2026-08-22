@@ -225,18 +225,39 @@ CHROME_BINARY_ENV = "LLSP_CHROME_BINARY"
 CHROMEDRIVER_ENV = "LLSP_CHROMEDRIVER"
 
 
-def embedded_payload():
-    """The browser archive appended to this executable, if there is one.
+#: What a .app calls the payload it carries in Contents/Resources. Kept in
+#: step with packaging/append_payload.py.
+BUNDLE_PAYLOAD_NAME = "browser-payload.zip"
 
-    The build appends it after PyInstaller's own archive: zip finds its
-    central directory from the end of the file, so the executable can read
-    its own payload, and the bootloader is unaffected by data sitting after
-    what it cares about.
+
+def payload_path() -> Path:
+    """The file the browser archive is expected to be found in.
+
+    Windows ships one .exe with the payload appended to it, so the executable
+    reads its own tail. A .app is a directory, so the payload sits beside the
+    binary as a sealed resource instead — appending to the Mach-O there would
+    put it outside the code signature, which Apple Silicon refuses to run.
+    """
+    executable = Path(sys.executable)
+    if sys.platform == "darwin":
+        resource = executable.resolve().parent.parent / "Resources"
+        candidate = resource / BUNDLE_PAYLOAD_NAME
+        if candidate.is_file():
+            return candidate
+    return executable
+
+
+def embedded_payload():
+    """The browser archive this build carries, if there is one.
+
+    Zip finds its central directory from the end of the file, so an appended
+    payload reads back out of the executable itself and PyInstaller's
+    bootloader is unaffected by data sitting after what it cares about.
     """
     if not frozen():
         return None
     try:
-        archive = zipfile.ZipFile(Path(sys.executable))
+        archive = zipfile.ZipFile(payload_path())
     except (OSError, zipfile.BadZipFile):
         return None
     if not any(name.startswith("browser/") for name in archive.namelist()):
@@ -251,11 +272,98 @@ def browser_dir() -> Path:
 
 
 def _chrome_binary(root: Path) -> Optional[Path]:
-    names = ("chrome.exe", "chrome", "Chromium.app")
-    for name in names:
+    """The executable to launch, wherever this platform keeps it.
+
+    macOS ships a bundle: the thing Selenium needs is the Mach-O binary
+    inside it, not the .app directory.
+    """
+    for found in root.rglob("Chromium.app"):
+        inner = found / "Contents" / "MacOS" / "Chromium"
+        if inner.is_file():
+            return inner
+    for name in ("chrome.exe", "chrome"):
         for found in root.rglob(name):
-            return found
+            if found.is_file():
+                return found
     return None
+
+
+def _unpack(archive: "zipfile.ZipFile", destination: Path) -> None:
+    """Extract, keeping symlinks and the executable bit.
+
+    ``extractall`` does neither: it writes a symlink as an ordinary file
+    holding its target as text, and drops permissions. On macOS that breaks
+    the browser outright — a .app's framework layout *is* symlinks
+    ("Versions/Current" and friends), and every helper binary needs +x, so
+    Chromium unpacks looking complete and then exits the moment it launches.
+    """
+    root = destination.resolve()
+    for info in archive.infolist():
+        target = destination / info.filename
+        # A crafted archive must not write outside the folder we chose.
+        if not str(target.resolve().parent).startswith(str(root)):
+            continue
+        mode = info.external_attr >> 16
+
+        if stat.S_ISLNK(mode):
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if target.is_symlink() or target.exists():
+                target.unlink()
+            link = archive.read(info).decode()
+            try:
+                target.symlink_to(link)
+            except OSError:
+                # Windows needs a privilege for this that a normal account
+                # does not have. No archive we ship there holds a symlink, so
+                # this is a safety net: copy what it points at rather than
+                # abandoning the unpack half-done.
+                source = target.parent / link
+                if source.is_file():
+                    shutil.copyfile(source, target)
+            continue
+
+        if info.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+            continue
+
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with archive.open(info) as source, target.open("wb") as handle:
+            shutil.copyfileobj(source, handle)
+        if mode & 0o111:
+            target.chmod(target.stat().st_mode | 0o755)
+
+
+def _resign(app: Path, say) -> None:
+    """Re-sign an unpacked .app, ad-hoc.
+
+    Apple Silicon refuses to run a binary whose signature does not match its
+    contents, and unpacking rewrites every file. The browser ships ad-hoc
+    signed, so re-applying the same kind of signature is what makes it
+    launchable again. Best effort: on a Mac without the tools, or on any other
+    platform, this simply does not apply.
+    """
+    if sys.platform != "darwin":
+        return
+    import shutil as _shutil
+    import subprocess
+
+    codesign = _shutil.which("codesign")
+    if not codesign:
+        return
+    try:
+        # codesign is whatever shutil.which resolved that fixed name to, and
+        # app is a folder this module chose under the user's own data dir —
+        # nothing here comes from a page, a CSV or a setting, and it is a
+        # list, so there is no shell to inject into.
+        # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
+        result = subprocess.run(  # noqa: S603
+            [codesign, "--force", "--deep", "--sign", "-", str(app)],
+            capture_output=True, text=True, timeout=300, check=False)
+    except Exception as exc:  # noqa: BLE001 - signing is a best-effort repair
+        say(f"⚠ could not re-sign the bundled browser: {exc}")
+        return
+    if result.returncode != 0:
+        say(f"⚠ re-signing the bundled browser said: {result.stderr.strip()[:200]}")
 
 
 def ensure_embedded_browser(progress=None) -> Optional[Path]:
@@ -303,7 +411,7 @@ def ensure_embedded_browser(progress=None) -> Optional[Path]:
                         # Read into memory: ZipFile needs to seek, and a
                         # member stream cannot.
                         with zipfile.ZipFile(io.BytesIO(inner.read())) as archive:
-                            archive.extractall(staging)
+                            _unpack(archive, staging)
                 # Only now is it complete — a half-written folder must not
                 # look like a finished one on the next run.
                 staging.rename(target)
@@ -316,6 +424,9 @@ def ensure_embedded_browser(progress=None) -> Optional[Path]:
     binary = _chrome_binary(target)
     if binary is None:
         return None
+    if sys.platform == "darwin":
+        # ".../Chromium.app/Contents/MacOS/Chromium" -> the bundle itself.
+        _resign(binary.parent.parent.parent, say)
     # Everything the app launches from here on drives this browser, and the
     # driver that shipped beside it — same build, so they always match.
     binary.chmod(binary.stat().st_mode | stat.S_IEXEC)

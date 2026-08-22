@@ -797,6 +797,38 @@ def test_the_browser_payload_is_read_from_the_executable_itself(tmp_path, monkey
         assert "browser/manifest.json" in archive.namelist()
 
 
+def test_a_mac_bundle_carries_the_payload_as_a_sealed_resource(tmp_path, monkeypatch):
+    """On macOS the browser is a bundle resource, not appended to the binary.
+
+    Appending would leave the payload outside the code signature, and Apple
+    Silicon refuses to run a binary that does not match what was signed. A
+    resource is sealed along with everything else, so the bundle stays valid.
+    """
+    import json
+    import zipfile
+
+    from gui import runtime
+
+    bundle = tmp_path / "Local Lead Scraper Pro.app"
+    binary = bundle / "Contents" / "MacOS" / "LocalLeadScraperPro"
+    binary.parent.mkdir(parents=True)
+    binary.write_bytes(b"\x00" * 4096)           # signed, and left alone
+    resources = bundle / "Contents" / "Resources"
+    resources.mkdir(parents=True)
+    with zipfile.ZipFile(resources / runtime.BUNDLE_PAYLOAD_NAME, "w") as archive:
+        archive.writestr("browser/manifest.json", json.dumps({"revision": "1"}))
+
+    monkeypatch.setattr(runtime, "frozen", lambda: True)
+    monkeypatch.setattr(runtime.sys, "executable", str(binary))
+    monkeypatch.setattr(runtime.sys, "platform", "darwin")
+
+    assert runtime.payload_path() == resources / runtime.BUNDLE_PAYLOAD_NAME
+    found = runtime.embedded_payload()
+    assert found is not None
+    with found as archive:
+        assert "browser/manifest.json" in archive.namelist()
+
+
 def test_no_payload_means_use_the_installed_browser(tmp_path, monkeypatch):
     """A build without a bundled browser must not pretend it has one."""
     from gui import runtime
@@ -809,6 +841,113 @@ def test_no_payload_means_use_the_installed_browser(tmp_path, monkeypatch):
     assert runtime.embedded_payload() is None
     monkeypatch.delenv(runtime.CHROME_BINARY_ENV, raising=False)
     assert runtime.ensure_embedded_browser() is None
+
+
+def test_unpacking_keeps_symlinks_and_the_executable_bit():
+    """extractall does neither, and a macOS .app cannot survive that.
+
+    A Mac browser bundle's framework layout *is* symlinks — Versions/Current
+    and friends — and every helper binary needs +x. Written as plain files
+    without permissions, Chromium unpacks looking complete and then exits the
+    instant it launches, which is exactly what the Apple Silicon build did.
+    """
+    import stat
+    import zipfile
+
+    from gui.runtime import _unpack
+
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        archive_path = root / "browser.zip"
+        with zipfile.ZipFile(archive_path, "w") as archive:
+            archive.writestr("app/Versions/1.0/binary", b"MZ-not-really")
+            # A symlink is a normal entry whose mode says S_IFLNK and whose
+            # body is the target path.
+            link = zipfile.ZipInfo("app/Versions/Current")
+            link.external_attr = (stat.S_IFLNK | 0o777) << 16
+            archive.writestr(link, "1.0")
+            binary = zipfile.ZipInfo("app/MacOS/Chromium")
+            binary.external_attr = (stat.S_IFREG | 0o755) << 16
+            archive.writestr(binary, b"chromium")
+            archive.writestr("app/Resources/note.txt", b"plain file")
+
+        out = root / "out"
+        out.mkdir()
+        with zipfile.ZipFile(archive_path) as archive:
+            _unpack(archive, out)
+
+        # Rebuilt outside the temp dir would be meaningless, so assert inside.
+        assert (out / "app/Versions/Current").is_symlink()
+        assert (out / "app/Versions/Current").readlink().name == "1.0"
+        # Windows has no execute bit — chmod there only toggles read-only —
+        # and the browser it unpacks carries no symlinks to need one.
+        if os.name != "nt":
+            assert (out / "app/MacOS/Chromium").stat().st_mode & 0o111
+        # An ordinary file stays an ordinary file, and stays readable.
+        assert (out / "app/Resources/note.txt").read_bytes() == b"plain file"
+        assert not (out / "app/Resources/note.txt").is_symlink()
+
+
+def test_unpacking_survives_a_filesystem_that_cannot_make_symlinks(monkeypatch):
+    """Windows needs a privilege for symlinks that a normal account lacks.
+
+    No archive shipped there holds one, so this never fires in practice — but
+    raising mid-unpack would leave a half-written browser behind, which is a
+    far worse failure than copying what the link pointed at.
+    """
+    import stat
+    import tempfile
+    import zipfile
+
+    from gui.runtime import _unpack
+
+    def refuse(self, target):
+        raise OSError("symlinks need a privilege this account does not have")
+
+    monkeypatch.setattr(Path, "symlink_to", refuse)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        archive_path = root / "browser.zip"
+        with zipfile.ZipFile(archive_path, "w") as archive:
+            archive.writestr("app/real.txt", b"the real thing")
+            link = zipfile.ZipInfo("app/link.txt")
+            link.external_attr = (stat.S_IFLNK | 0o777) << 16
+            archive.writestr(link, "real.txt")
+
+        out = root / "out"
+        out.mkdir()
+        with zipfile.ZipFile(archive_path) as archive:
+            _unpack(archive, out)
+
+        assert (out / "app/real.txt").read_bytes() == b"the real thing"
+        # A copy, not a link, but the content is there either way.
+        assert (out / "app/link.txt").read_bytes() == b"the real thing"
+
+
+def test_unpacking_refuses_to_write_outside_its_folder():
+    """A symlink or path escaping the destination is not extracted."""
+    import tempfile
+    import zipfile
+
+    from gui.runtime import _unpack
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        archive_path = root / "evil.zip"
+        with zipfile.ZipFile(archive_path, "w") as archive:
+            archive.writestr("../escaped.txt", b"should not be written")
+            archive.writestr("fine.txt", b"ok")
+
+        out = root / "out"
+        out.mkdir()
+        with zipfile.ZipFile(archive_path) as archive:
+            _unpack(archive, out)
+
+        assert (out / "fine.txt").exists()
+        assert not (root / "escaped.txt").exists()
 
 
 def test_the_scrapers_drive_the_bundled_browser_when_there_is_one():

@@ -247,6 +247,46 @@ def test_tagging_a_release_also_builds_and_publishes_the_windows_exe():
     assert "LocalLeadScraperPro-${{ matrix.arch }}.exe" in publish[0]["with"]["files"]
 
 
+def test_all_four_desktop_builds_are_wired_into_the_release():
+    """Windows and macOS, two architectures each, all on one release.
+
+    Neither PyInstaller nor Qt cross-compiles, so every one of these needs its
+    own runner — there is no way to produce them from a single job.
+    """
+    version = _workflow("version.yml")
+    jobs = version["jobs"]
+    assert jobs["windows"]["uses"] == "./.github/workflows/windows-build.yml"
+    assert jobs["macos"]["uses"] == "./.github/workflows/macos-build.yml"
+    for name in ("windows", "macos"):
+        assert jobs[name]["with"]["tag"] == "${{ needs.bump.outputs.tag }}"
+        assert jobs[name]["if"].strip() == "needs.bump.outputs.tag != ''"
+        assert jobs[name]["permissions"]["contents"] == "write"
+
+    mac = _workflow("macos-build.yml")
+    by_arch = {e["arch"]: e for e in mac["jobs"]["build"]["strategy"]["matrix"]["include"]}
+    assert set(by_arch) == {"intel", "apple-silicon"}
+    # Intel needs the -intel label; the bare one is Apple Silicon. Retired
+    # labels (macos-13, and macos-14 next) leave the job queued forever.
+    assert by_arch["intel"]["runner"] == "macos-15-intel"
+    assert by_arch["apple-silicon"]["runner"] == "macos-15"
+    # Each must fetch the Chromium built for its own silicon.
+    assert by_arch["intel"]["chromium"] == "Mac"
+    assert by_arch["apple-silicon"]["chromium"] == "Mac_Arm"
+
+
+def test_the_mac_workflow_publishes_a_zipped_bundle():
+    """A .app is a directory; a release asset is one file."""
+    mac = _workflow("macos-build.yml")
+    steps = mac["jobs"]["build"]["steps"]
+    names = [s.get("name") for s in steps]
+    assert "Zip the bundle" in names
+    publish = [s for s in steps
+               if str(s.get("uses", "")).startswith("softprops/action-gh-release")]
+    assert len(publish) == 1
+    assert publish[0]["with"]["files"] == "${{ env.ASSET }}"
+    assert publish[0]["if"].strip() == "env.RELEASE_TAG != ''"
+
+
 def test_both_windows_architectures_are_built():
     """An ARM64 Windows machine should get a native build, not x64 emulation.
 
