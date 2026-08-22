@@ -273,6 +273,48 @@ def _check_pipeline_runs() -> list:
     return problems
 
 
+def _check_bundled_browser(problems: list) -> str:
+    """Unpack the embedded browser and drive it, if this build carries one.
+
+    This is the claim the packaging makes — that the .exe needs nothing
+    installed — so the build proves it rather than asserting it.
+    """
+    from . import runtime
+
+    payload = runtime.embedded_payload()
+    if payload is None:
+        return "no browser payload"
+    payload.close()
+
+    binary = runtime.ensure_embedded_browser(lambda line: print(f"    {line}"))
+    if binary is None or not Path(binary).exists():
+        problems.append("the browser payload did not unpack into a usable browser")
+        return "unpack failed"
+
+    try:
+        from selenium import webdriver
+        from selenium.webdriver.common.by import By
+
+        options = webdriver.ChromeOptions()
+        options.binary_location = str(binary)
+        for flag in ("--headless=new", "--no-sandbox", "--disable-dev-shm-usage",
+                     "--disable-gpu"):
+            options.add_argument(flag)
+        driver = webdriver.Chrome(options=options)
+        try:
+            driver.get("data:text/html,<title>bundled</title><p id=x>ok</p>")
+            found = driver.find_element(By.ID, "x").text
+        finally:
+            driver.quit()
+        if found != "ok":
+            problems.append(f"the bundled browser returned {found!r}")
+    except Exception as exc:  # noqa: BLE001 - that is the thing being tested
+        problems.append(f"the bundled browser would not drive: "
+                        f"{type(exc).__name__}: {exc}")
+        return "drive failed"
+    return f"bundled browser at {Path(binary).name} drives"
+
+
 def selftest(argv=None) -> int:
     """Build the whole UI offscreen, visit every page, and report.
 
@@ -292,6 +334,12 @@ def selftest(argv=None) -> int:
             problems.append(f"{key}: {type(exc).__name__}: {exc}")
     problems.extend(_check_runtime_imports())
     problems.extend(_check_pipeline_runs())
+    # Opt-in: unpacking a few hundred megabytes and launching a browser is far
+    # slower than the rest, so the quick self-test stays quick and the build
+    # asks for this explicitly.
+    browser = "not checked"
+    if "--with-browser" in list(argv or []):
+        browser = _check_bundled_browser(problems)
 
     # The assets the app cannot work without.
     from . import runtime
@@ -305,10 +353,18 @@ def selftest(argv=None) -> int:
         problems.append(f"no email templates in {templates}")
     if not runtime.bundle_dir().exists():
         problems.append("bundle directory missing")
-    # A packaged build without the driver still works, but only by downloading
-    # one on first use — which is exactly what shipping it is meant to avoid.
-    if runtime.frozen() and runtime.bundled_driver_dir() is None:
-        problems.append("no bundled chromedriver: run packaging/fetch_chromedriver.py")
+    # A packaged build has to carry a way to drive a browser without reaching
+    # for the network: either the appended Chromium payload (browser + matching
+    # driver) or, failing that, a bundled chromedriver for the machine's own
+    # Chrome. With neither, a first run downloads — the thing shipping them is
+    # meant to avoid.
+    if runtime.frozen():
+        payload = runtime.embedded_payload()
+        if payload is not None:
+            payload.close()
+        elif runtime.bundled_driver_dir() is None:
+            problems.append("this build carries neither a browser payload nor a "
+                            "chromedriver: run packaging/fetch_chromium.py")
     for line in problems:
         print(f"FAIL {line}", file=sys.stderr)
     if problems:
@@ -316,7 +372,8 @@ def selftest(argv=None) -> int:
     driver = runtime.bundled_driver_version() or "none bundled"
     print(f"OK  {len(window.pages)} pages, {len(rendered)} templates, "
           f"{len(RUNTIME_IMPORTS)} runtime imports, demo pipeline ran, "
-          f"chromedriver {driver}, data dir {runtime.working_dir()}")
+          f"chromedriver {driver}, browser: {browser}, "
+          f"data dir {runtime.working_dir()}")
     return 0
 
 

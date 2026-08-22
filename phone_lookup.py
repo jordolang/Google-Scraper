@@ -16,6 +16,7 @@ Used by the TUI's "find phone" action and importable on its own::
 
 from __future__ import annotations
 
+import os
 import re
 import time
 from urllib.parse import quote_plus
@@ -70,6 +71,12 @@ class PhoneLookup:
         options.add_argument("--disable-blink-features=AutomationControlled")
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option("useAutomationExtension", False)
+
+        # Drive the browser the app bundled, when it unpacked one; falls back
+        # to whatever Chrome is installed otherwise.
+        bundled = os.environ.get("LLSP_CHROME_BINARY")
+        if bundled:
+            options.binary_location = bundled
 
         self.driver = webdriver.Chrome(options=options)
         self.driver.set_page_load_timeout(page_timeout)

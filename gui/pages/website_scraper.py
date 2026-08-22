@@ -10,7 +10,7 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QMessageBox
 
 from contact_scraper import INSIGHT_CATEGORIES
 
-from .. import theme, services
+from .. import theme, services, runtime
 from ..state import Lead
 from ..widgets.common import (
     Card, DataTable, KeyValueRow, LogView, Pill, button, checkbox, hint,
@@ -243,6 +243,7 @@ class WebsiteScraperPage(Page):
         want_phones = self.phone_lookup_box.isChecked()
 
         def job(progress, on_event):
+            runtime.ensure_embedded_browser(progress)
             pipeline.scrape_contacts(businesses, progress=progress, on_event=on_event)
             if want_phones:
                 progress("Looking up phone numbers for the sites that came up empty…")

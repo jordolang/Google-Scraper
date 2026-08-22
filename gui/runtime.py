@@ -18,6 +18,10 @@ import os
 import shutil
 import sys
 from pathlib import Path
+import io
+import json
+import stat
+import zipfile
 from typing import Iterable, Optional
 
 APP_NAME = "LocalLeadScraperPro"
@@ -209,6 +213,116 @@ def use_bundled_driver() -> Optional[Path]:
     if str(drivers) not in entries:
         os.environ["PATH"] = os.pathsep.join([str(drivers)] + entries)
     return drivers
+
+
+#: Where the scrapers look for the browser to drive. Set once the embedded
+#: Chromium is unpacked; empty means "use whatever Chrome is installed".
+CHROME_BINARY_ENV = "LLSP_CHROME_BINARY"
+
+
+def embedded_payload():
+    """The browser archive appended to this executable, if there is one.
+
+    The build appends it after PyInstaller's own archive: zip finds its
+    central directory from the end of the file, so the executable can read
+    its own payload, and the bootloader is unaffected by data sitting after
+    what it cares about.
+    """
+    if not frozen():
+        return None
+    try:
+        archive = zipfile.ZipFile(Path(sys.executable))
+    except (OSError, zipfile.BadZipFile):
+        return None
+    if not any(name.startswith("browser/") for name in archive.namelist()):
+        archive.close()
+        return None
+    return archive
+
+
+def browser_dir() -> Path:
+    """Where the unpacked browser lives, outside the executable."""
+    return app_data_dir() / "browser"
+
+
+def _chrome_binary(root: Path) -> Optional[Path]:
+    names = ("chrome.exe", "chrome", "Chromium.app")
+    for name in names:
+        for found in root.rglob(name):
+            return found
+    return None
+
+
+def ensure_embedded_browser(progress=None) -> Optional[Path]:
+    """Unpack the browser carried inside the executable, once.
+
+    Returns the Chromium binary to drive, or None when this build carries no
+    browser (running from source, say) and the machine's own Chrome should be
+    used instead.
+
+    The unpacking happens the first time a scrape runs rather than at startup,
+    so opening the app — and demo mode, which needs no browser at all — never
+    waits for it.
+    """
+    def say(message: str) -> None:
+        if progress is not None:
+            progress(message)
+
+    configured = os.environ.get(CHROME_BINARY_ENV)
+    if configured and Path(configured).exists():
+        return Path(configured)
+
+    payload = embedded_payload()
+    if payload is None:
+        return None
+
+    with payload:
+        try:
+            manifest = json.loads(payload.read("browser/manifest.json"))
+        except (KeyError, ValueError):
+            return None
+        target = browser_dir() / str(manifest.get("revision", "current"))
+
+        if not target.exists():
+            say("Unpacking the bundled browser — this happens once, "
+                "and takes a minute…")
+            staging = target.with_name(target.name + ".partial")
+            if staging.exists():
+                shutil.rmtree(staging, ignore_errors=True)
+            staging.mkdir(parents=True, exist_ok=True)
+            try:
+                for name in payload.namelist():
+                    if not name.endswith(".zip"):
+                        continue
+                    with payload.open(name) as inner:
+                        # Read into memory: ZipFile needs to seek, and a
+                        # member stream cannot.
+                        with zipfile.ZipFile(io.BytesIO(inner.read())) as archive:
+                            archive.extractall(staging)
+                # Only now is it complete — a half-written folder must not
+                # look like a finished one on the next run.
+                staging.rename(target)
+            except (OSError, zipfile.BadZipFile) as exc:
+                shutil.rmtree(staging, ignore_errors=True)
+                say(f"⚠ could not unpack the bundled browser: {exc}")
+                return None
+            say("Bundled browser ready.")
+
+    binary = _chrome_binary(target)
+    if binary is None:
+        return None
+    # Everything the app launches from here on drives this browser, and the
+    # driver that shipped beside it — same build, so they always match.
+    binary.chmod(binary.stat().st_mode | stat.S_IEXEC)
+    os.environ[CHROME_BINARY_ENV] = str(binary)
+    for driver in target.rglob("chromedriver*"):
+        if driver.is_file():
+            driver.chmod(driver.stat().st_mode | stat.S_IEXEC)
+            entries = os.environ.get("PATH", "").split(os.pathsep)
+            if str(driver.parent) not in entries:
+                os.environ["PATH"] = os.pathsep.join([str(driver.parent)] + entries)
+            break
+    return binary
 
 
 def _writable_dir(preferred: Path) -> Path:

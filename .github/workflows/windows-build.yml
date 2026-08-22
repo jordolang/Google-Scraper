@@ -63,8 +63,25 @@ on:
 
 jobs:
   build:
-    runs-on: windows-latest
-    timeout-minutes: 30
+    # Both Windows architectures. PyInstaller cannot cross-compile and neither
+    # can Qt, so an ARM64 executable has to be built on an ARM64 runner — which
+    # is the native one for recent Surface/Snapdragon machines. The x64 build
+    # still runs there under emulation, but slower.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: windows-latest
+            python_arch: x64
+            chromium: Win_x64
+          - arch: arm64
+            runner: windows-11-arm
+            python_arch: arm64
+            chromium: Win_Arm64
+    runs-on: ${{ matrix.runner }}
+    name: build (${{ matrix.arch }})
+    timeout-minutes: 60
     permissions:
       contents: write  # to publish the release
     env:
@@ -82,6 +99,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          architecture: ${{ matrix.python_arch }}
           cache: pip
 
       - name: Install dependencies
@@ -105,28 +123,45 @@ jobs:
           LLSP_LIVE_TESTS: "1"
         run: pytest tests/test_live_scrape.py -q
 
-      - name: Generate icon, version resource and bundled driver
+      - name: Generate icon and version resource
         run: |
           python packaging/make_icon.py
           python packaging/make_version_info.py
-          # Ships inside the .exe so a first run needs no download.
-          python packaging/fetch_chromedriver.py --platform win64
-          # A silently corrupt or wrong-version download would ship a driver
-          # that cannot start, so run it and check it says what we recorded.
-          $expected = (Get-Content packaging/drivers/VERSION -Raw).Trim()
-          $reported = (& packaging/drivers/chromedriver.exe --version)
-          if ($LASTEXITCODE -ne 0) { throw "the bundled chromedriver did not run" }
-          Write-Host "bundled: $reported (expected $expected)"
-          if ($reported -notmatch [regex]::Escape($expected)) {
-            throw "bundled chromedriver is $reported, expected $expected"
-          }
+
+      - name: Fetch the Chromium payload
+        # Bundled so the app needs no browser installed. Browser and driver
+        # come from one snapshot revision, so they always match — which is why
+        # there is no separate chromedriver step: Chrome for Testing publishes
+        # no ARM64 Windows driver, and this pairing needs none.
+        run: python packaging/fetch_chromium.py --platform ${{ matrix.chromium }}
+
+      - name: Check the payload holds a browser and a driver
+        run: |
+          python - <<'PY'
+          import json, zipfile
+          with zipfile.ZipFile("packaging/browser/browser-payload.zip") as payload:
+              names = payload.namelist()
+              manifest = json.loads(payload.read("browser/manifest.json"))
+          browser = [n for n in names if "chrome-" in n and n.endswith(".zip")]
+          driver = [n for n in names if "chromedriver" in n and n.endswith(".zip")]
+          print("revision", manifest["revision"], "->", names)
+          assert browser, "the payload carries no browser archive"
+          assert driver, "the payload carries no chromedriver archive"
+          PY
 
       - name: Build LocalLeadScraperPro.exe
         run: pyinstaller --clean --noconfirm packaging/LocalLeadScraperPro.spec
 
+      - name: Append the browser payload
+        # After PyInstaller, not inside it: one-file builds unpack everything
+        # they bundle on every launch, and that would add minutes to each start.
+        run: |
+          python packaging/append_payload.py dist/LocalLeadScraperPro.exe
+          Rename-Item dist/LocalLeadScraperPro.exe LocalLeadScraperPro-${{ matrix.arch }}.exe
+
       - name: Check the executable launches
         run: |
-          $exe = "dist/LocalLeadScraperPro.exe"
+          $exe = "dist/LocalLeadScraperPro-${{ matrix.arch }}.exe"
           if (-not (Test-Path $exe)) { throw "the build produced no executable" }
           $size = [math]::Round((Get-Item $exe).Length / 1MB, 1)
           Write-Host "built $exe ($size MB)"
@@ -140,16 +175,19 @@ jobs:
           # self-test passed.
           $startArgs = @{
             FilePath               = $exe
-            ArgumentList           = "--selftest"
+            # --with-browser unpacks the bundled Chromium and drives it, so a
+            # build that cannot run without an installed browser fails here.
+            ArgumentList           = "--selftest", "--with-browser"
             PassThru               = $true
             NoNewWindow            = $true
             RedirectStandardOutput = "selftest-out.txt"
             RedirectStandardError  = "selftest-err.txt"
           }
           $proc = Start-Process @startArgs
-          if (-not $proc.WaitForExit(180000)) {
+          # Unpacking a few hundred megabytes of browser takes a while.
+          if (-not $proc.WaitForExit(600000)) {
             $proc.Kill()
-            throw "self-test did not finish within 3 minutes"
+            throw "self-test did not finish within 10 minutes"
           }
           $out = Get-Content selftest-out.txt -Raw -ErrorAction SilentlyContinue
           $err = Get-Content selftest-err.txt -Raw -ErrorAction SilentlyContinue
@@ -174,8 +212,8 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: LocalLeadScraperPro-windows
-          path: dist/LocalLeadScraperPro.exe
+          name: LocalLeadScraperPro-windows-${{ matrix.arch }}
+          path: dist/LocalLeadScraperPro-${{ matrix.arch }}.exe
           if-no-files-found: error
           retention-days: 90
 
@@ -185,7 +223,7 @@ jobs:
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           name: ${{ env.RELEASE_TAG }}
-          files: dist/LocalLeadScraperPro.exe
+          files: dist/LocalLeadScraperPro-${{ matrix.arch }}.exe
           generate_release_notes: true
           body: |
             ## Local Lead Scraper Pro — Windows

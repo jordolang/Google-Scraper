@@ -751,6 +751,59 @@ def test_an_unknown_chrome_version_still_prefers_the_bundled_driver(tmp_path, mo
     assert runtime.use_bundled_driver() == drivers
 
 
+def test_the_browser_payload_is_read_from_the_executable_itself(tmp_path, monkeypatch):
+    """The browser rides appended to the .exe, and is read back out of it.
+
+    Zip finds its central directory from the end of a file, so an archive
+    appended after PyInstaller's own survives — that is what lets one file
+    carry a browser without unpacking it on every launch.
+    """
+    import json
+    import zipfile
+
+    from gui import runtime
+
+    fake_exe = tmp_path / "app.exe"
+    fake_exe.write_bytes(b"\x00" * 4096)          # stand-in for the program
+    payload = tmp_path / "payload.zip"
+    with zipfile.ZipFile(payload, "w") as archive:
+        archive.writestr("browser/manifest.json", json.dumps({"revision": "1"}))
+        archive.writestr("browser/chrome-win.zip", b"not a real browser")
+    with fake_exe.open("ab") as exe:
+        exe.write(payload.read_bytes())
+
+    monkeypatch.setattr(runtime, "frozen", lambda: True)
+    monkeypatch.setattr(runtime.sys, "executable", str(fake_exe))
+
+    found = runtime.embedded_payload()
+    assert found is not None
+    with found as archive:
+        assert "browser/manifest.json" in archive.namelist()
+
+
+def test_no_payload_means_use_the_installed_browser(tmp_path, monkeypatch):
+    """A build without a bundled browser must not pretend it has one."""
+    from gui import runtime
+
+    plain = tmp_path / "plain.exe"
+    plain.write_bytes(b"\x00" * 4096)
+    monkeypatch.setattr(runtime, "frozen", lambda: True)
+    monkeypatch.setattr(runtime.sys, "executable", str(plain))
+
+    assert runtime.embedded_payload() is None
+    monkeypatch.delenv(runtime.CHROME_BINARY_ENV, raising=False)
+    assert runtime.ensure_embedded_browser() is None
+
+
+def test_the_scrapers_drive_the_bundled_browser_when_there_is_one():
+    """Each scraper builds its own Chrome options, so each has to honour it."""
+    root = Path(__file__).resolve().parent.parent
+    for name in ("google_maps_scraper.py", "contact_scraper.py", "phone_lookup.py"):
+        source = (root / name).read_text(encoding="utf-8")
+        assert "LLSP_CHROME_BINARY" in source, f"{name} ignores the bundled browser"
+        assert "options.binary_location" in source, name
+
+
 def test_the_spec_ships_the_driver_folder():
     """The exact datas entry, not just the word: a stray mention elsewhere
     would satisfy a loose check while the driver never reached the bundle."""

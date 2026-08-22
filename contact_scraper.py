@@ -4,6 +4,7 @@ Website Contact Scraper
 Reads Google Maps CSV results and scrapes contact information from business websites
 """
 
+import os
 import csv
 import json
 import re
@@ -146,6 +147,11 @@ class ContactScraper:
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option('useAutomationExtension', False)
         
+        # Drive the browser the app bundled, when it unpacked one; falls back
+        # to whatever Chrome is installed otherwise.
+        bundled = os.environ.get("LLSP_CHROME_BINARY")
+        if bundled:
+            options.binary_location = bundled
         self.driver = webdriver.Chrome(options=options)
         self.driver.set_page_load_timeout(30)
         self.wait = WebDriverWait(self.driver, 10)

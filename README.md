@@ -459,7 +459,8 @@ python -m gui --demo       # tour it with sample data — no Chrome, no SMTP
 | How | What you do |
 | --- | --- |
 | **Download** | [**Releases**](https://github.com/jordolang/Google-Scraper/releases/latest) → `LocalLeadScraperPro.exe`. Every version bump on `main` publishes one. For an unreleased build, GitHub **Actions → Windows App →** newest run → the `LocalLeadScraperPro-windows` artifact. |
-| **What's inside** | Python, PySide6, Selenium, the scrapers, the templates and a matching chromedriver — nothing to install or download. Google Chrome itself is the one exception: Selenium drives the copy already on the machine ([why](docs/WINDOWS_APP.md#what-is-inside-the-exe-and-what-is-not)). Demo mode needs no browser. |
+| **What's inside** | Everything: Python, PySide6, Selenium, the scrapers, the templates, **and a Chromium browser with its matching driver**. Nothing to install, nothing downloaded ([how](docs/WINDOWS_APP.md#how-the-browser-rides-along)). |
+| **Architectures** | `LocalLeadScraperPro-x64.exe` for Intel/AMD, `LocalLeadScraperPro-arm64.exe` native for Snapdragon/ARM Windows. Both are built and published on every release. |
 | **Build it** | On Windows: `packaging\build_windows.bat` → `dist\LocalLeadScraperPro.exe` |
 | **From source** | `python -m gui` on any OS |
 

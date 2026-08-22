@@ -111,5 +111,6 @@ dist/
 build/
 *.spec.bak
 
-# Fetched at build time by packaging/fetch_chromedriver.py
+# Fetched at build time; both are hundreds of megabytes of binary.
 packaging/drivers/
+packaging/browser/

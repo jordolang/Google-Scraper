@@ -49,24 +49,42 @@ it.
 
 ## What is inside the .exe, and what is not
 
-Everything the app needs to run is in the one file, and nothing is installed.
-Nothing is downloaded either, with one caveat spelled out under the driver
-below: if the bundled driver does not match the Chrome on the machine, Selenium
-fetches one that does.
+Everything the app needs is in the one file. Nothing is installed and nothing
+is downloaded — including the browser:
 
 | | |
 | --- | --- |
 | Python itself, PySide6, Selenium, BeautifulSoup, lxml | bundled |
 | The app, its email templates, the pitch script | bundled |
 | **chromedriver** | bundled — see below |
-| **Google Chrome** | **not bundled; must already be on the machine** |
+| **Chromium** (the browser itself) | bundled |
 
-Chrome is the one thing the .exe cannot carry. It is a separate ~150 MB
-application with its own installer and its own licence, and Selenium works by
-driving the copy of Chrome you already have rather than shipping its own. Most
-Windows machines have it; if yours does not, install it once from
-google.com/chrome. **Demo mode** (Settings → Scraping) tours every screen with
-no browser at all.
+Nothing needs to be installed, not even a browser. The executable carries a
+Chromium build and the chromedriver from the same snapshot revision, so the two
+always match — the version-mismatch problem that normally comes with driving
+Chrome cannot arise.
+
+Chromium rather than Google Chrome: Chromium is the open-source project and can
+be redistributed inside another product; Google's Chrome binaries cannot. If a
+Chrome is already installed and you would rather drive that, delete the
+unpacked browser folder (below) and the app falls back to it.
+
+### How the browser rides along
+
+PyInstaller's one-file mode unpacks everything it bundles to a temp folder on
+*every* launch, so putting ~250 MB of browser in the bundle would add a long
+pause to every start. It is appended to the executable instead, after
+PyInstaller's own archive — zip finds its central directory from the end of a
+file, so the app can read its own payload, and the bootloader does not care
+what follows its archive.
+
+The first scrape unpacks it once to
+
+    %LOCALAPPDATA%\LocalLeadScraperPro\browser\<revision>\
+
+and says so in the progress log; every launch after that is immediate. Delete
+that folder to reclaim the space, or to force a fall back to an installed
+Chrome — it is rebuilt from the executable on the next run.
 
 ### The bundled chromedriver
 

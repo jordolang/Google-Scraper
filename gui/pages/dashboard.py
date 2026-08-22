@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from .. import services, theme
+from .. import services, theme, runtime
 from ..state import Lead
 from ..widgets.common import (
     Card, DataTable, Field, Pill, Stat, button, hint, progress_bar, title,
@@ -226,6 +226,7 @@ class DashboardPage(Page):
         self.state.log("search", f"Searching {len(terms)} industry(ies) near {location or 'anywhere'}")
 
         def job(progress, on_event):
+            runtime.ensure_embedded_browser(progress)
             for term in terms:
                 on_event(("industry-start", term, None))
                 progress(f"── {term} ──")

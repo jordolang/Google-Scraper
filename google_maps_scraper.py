@@ -4,6 +4,7 @@ Google Maps Business Scraper
 Scrapes business information including names, addresses, phone numbers, websites, etc.
 """
 
+import os
 import time
 import csv
 import json
@@ -32,6 +33,11 @@ class GoogleMapsScraper:
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option('useAutomationExtension', False)
         
+        # Drive the browser the app bundled, when it unpacked one; falls back
+        # to whatever Chrome is installed otherwise.
+        bundled = os.environ.get("LLSP_CHROME_BINARY")
+        if bundled:
+            options.binary_location = bundled
         self.driver = webdriver.Chrome(options=options)
         self.wait = WebDriverWait(self.driver, 10)
         self.businesses = []

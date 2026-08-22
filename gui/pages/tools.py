@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QComboBox, QFileDialog, QGridLayout, QHBoxLayout, QLineEdit, QMessageBox,
 )
 
-from .. import services
+from .. import services, runtime
 from ..widgets.common import Card, DataTable, Field, button, hint, title
 from ..workers import JobRunner
 from . import Page
@@ -80,6 +80,7 @@ class ToolsPage(Page):
         self.state.set_status("Looking up numbers…")
 
         def job(progress, on_event):
+            runtime.ensure_embedded_browser(progress)
             return pipeline.find_phones(businesses, sources=sources,
                                         progress=progress, on_event=on_event)
 
