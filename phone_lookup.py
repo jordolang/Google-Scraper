@@ -78,7 +78,17 @@ class PhoneLookup:
         if bundled:
             options.binary_location = bundled
 
-        self.driver = webdriver.Chrome(options=options)
+        # Hand Selenium the driver that shipped with the browser. Without an
+        # explicit service it runs Selenium Manager, which goes to the network
+        # — and publishes no driver at all for ARM64 Windows.
+        driver_path = os.environ.get("LLSP_CHROMEDRIVER")
+        service = None
+        if driver_path:
+            from selenium.webdriver.chrome.service import Service
+
+            service = Service(driver_path)
+
+        self.driver = webdriver.Chrome(service=service, options=options)
         self.driver.set_page_load_timeout(page_timeout)
 
     # -- sources -------------------------------------------------------------

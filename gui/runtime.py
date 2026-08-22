@@ -219,6 +219,11 @@ def use_bundled_driver() -> Optional[Path]:
 #: Chromium is unpacked; empty means "use whatever Chrome is installed".
 CHROME_BINARY_ENV = "LLSP_CHROME_BINARY"
 
+#: The driver that shipped beside that browser. Selenium is handed this path
+#: directly: left to itself it runs Selenium Manager, which goes to the network
+#: for a driver — and for ARM64 Windows there is none published to find.
+CHROMEDRIVER_ENV = "LLSP_CHROMEDRIVER"
+
 
 def embedded_payload():
     """The browser archive appended to this executable, if there is one.
@@ -316,12 +321,14 @@ def ensure_embedded_browser(progress=None) -> Optional[Path]:
     binary.chmod(binary.stat().st_mode | stat.S_IEXEC)
     os.environ[CHROME_BINARY_ENV] = str(binary)
     for driver in target.rglob("chromedriver*"):
-        if driver.is_file():
-            driver.chmod(driver.stat().st_mode | stat.S_IEXEC)
-            entries = os.environ.get("PATH", "").split(os.pathsep)
-            if str(driver.parent) not in entries:
-                os.environ["PATH"] = os.pathsep.join([str(driver.parent)] + entries)
-            break
+        if not driver.is_file() or driver.suffix.lower() not in ("", ".exe"):
+            continue
+        driver.chmod(driver.stat().st_mode | stat.S_IEXEC)
+        os.environ[CHROMEDRIVER_ENV] = str(driver)
+        entries = os.environ.get("PATH", "").split(os.pathsep)
+        if str(driver.parent) not in entries:
+            os.environ["PATH"] = os.pathsep.join([str(driver.parent)] + entries)
+        break
     return binary
 
 

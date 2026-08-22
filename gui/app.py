@@ -300,7 +300,15 @@ def _check_bundled_browser(problems: list) -> str:
         for flag in ("--headless=new", "--no-sandbox", "--disable-dev-shm-usage",
                      "--disable-gpu"):
             options.add_argument(flag)
-        driver = webdriver.Chrome(options=options)
+        # The driver that shipped with this browser, named explicitly — the
+        # whole point is that nothing is fetched at run time.
+        driver_path = os.environ.get(runtime.CHROMEDRIVER_ENV)
+        if not driver_path:
+            problems.append("the payload unpacked no chromedriver")
+            return "no driver"
+        from selenium.webdriver.chrome.service import Service
+
+        driver = webdriver.Chrome(service=Service(driver_path), options=options)
         try:
             driver.get("data:text/html,<title>bundled</title><p id=x>ok</p>")
             found = driver.find_element(By.ID, "x").text
