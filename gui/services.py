@@ -266,8 +266,11 @@ def explain_failure(message: str) -> str:
                 "packaging fault, not a problem with your machine. Please "
                 "report it with the module name above; Demo mode (Settings → "
                 "Scraping) still works in the meantime.")
+    # "unable to locate" alone would swallow NoSuchElementException, whose
+    # message is "Unable to locate element" — nothing to do with a browser.
     if ("cannot find chrome" in text or "no chrome binary" in text
-            or "chrome not reachable" in text or "unable to locate" in text
+            or "chrome not reachable" in text
+            or "unable to locate chrome" in text
             or "browser has not been found" in text):
         return ("Google Chrome was not found. Install Chrome, or turn on Demo "
                 "mode (Settings → Scraping) to explore the app without it.")
@@ -280,9 +283,18 @@ def explain_failure(message: str) -> str:
                 "wait often helps.")
     if "err_internet_disconnected" in text or "dns" in text:
         return "There is no internet connection reachable from this machine."
-    if "authentication failed" in text or "535" in text or "smtp" in text:
+    # Authentication specifically — not every SMTP error. A dropped
+    # connection mid-campaign is SMTPServerDisconnected, and telling someone
+    # their password is wrong when mail was already going out sends them to
+    # re-issue credentials for nothing.
+    if ("authentication failed" in text or "smtpauthentication" in text
+            or "535" in text or "534" in text or "auth" in text and "smtp" in text):
         return ("The mail server rejected the login. For an iCloud custom "
                 "domain the username is the Apple ID that owns the domain, and "
                 "the password must be an app-specific one.")
+    if "smtp" in text:
+        return ("The connection to the mail server broke. Anything already "
+                "sent is logged as contacted; check the Logs page to see how "
+                "far the campaign got before retrying the rest.")
     return ("Check the Logs page for the full trace. If Chrome is missing, "
             "install Google Chrome or turn on Demo mode in Settings.")

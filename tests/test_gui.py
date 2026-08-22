@@ -571,8 +571,11 @@ def test_every_lazily_imported_module_is_checked_by_the_selftest():
             if not match:
                 continue
             name = (match.group(1) or match.group(2)).split(".")[0]
+            # winreg is Windows-only stdlib, imported behind an os.name
+            # guard, so it cannot be imported here to check.
             if name in {"gui", "tui", "typing", "pathlib", "datetime", "PySide6",
-                        "__future__", "tempfile", "importlib", "re", "json", "os", "sys"}:
+                        "__future__", "tempfile", "importlib", "re", "json", "os",
+                        "sys", "winreg"}:
                 continue
             lazy.add(name)
 
@@ -604,14 +607,26 @@ def test_failure_advice_matches_what_actually_failed():
     assert "Logs page" in services.explain_failure("something unexpected")
 
 
-def test_one_phone_number_yields_one_entry():
-    """The two phone regexes overlap; a number must not appear twice.
+def test_advice_does_not_blame_chrome_or_the_password_too_readily():
+    """Two over-broad matches sent people to fix the wrong thing."""
+    # "Unable to locate element" is a page that changed, not a missing browser.
+    element = services.explain_failure(
+        "NoSuchElementException: Unable to locate element: div[role=feed]")
+    assert "Chrome was not found" not in element
 
-    "(614) 555-0142" matched the US pattern whole and the international one
-    from the digit after the bracket, so the scan produced a real number and a
-    malformed twin — and `set` ordering meant the twin could come first and
-    end up as the number on the call sheet.
-    """
+    # A dropped connection is not a rejected password: mail may already have
+    # gone out, and re-issuing credentials would be wasted effort.
+    dropped = services.explain_failure(
+        "SMTPServerDisconnected: Connection unexpectedly closed")
+    assert "app-specific" not in dropped
+    assert "already" in dropped
+    # A genuine rejection still says so.
+    assert "app-specific" in services.explain_failure(
+        "SMTPAuthenticationError: (535, b'Authentication failed')")
+
+
+def _phone_scraper():
+    """A ContactScraper with its patterns, but no browser."""
     import re
 
     import contact_scraper
@@ -621,6 +636,18 @@ def test_one_phone_number_yields_one_entry():
         re.compile(r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}'),
         re.compile(r'\+?\d{1,3}[-.\s]?\(?\d{1,4}\)?[-.\s]?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,9}'),
     ]
+    return scraper
+
+
+def test_one_phone_number_yields_one_entry():
+    """The two phone regexes overlap; a number must not appear twice.
+
+    "(614) 555-0142" matched the US pattern whole and the international one
+    from the digit after the bracket, so the scan produced a real number and a
+    malformed twin — and `set` ordering meant the twin could come first and
+    end up as the number on the call sheet.
+    """
+    scraper = _phone_scraper()
 
     assert scraper.extract_phones("Call (614) 555-0142 today") == ["(614) 555-0142"]
     # Two genuinely different numbers stay two, in the order they appear.
@@ -633,6 +660,93 @@ def test_one_phone_number_yields_one_entry():
     # Deterministic: the same text must not reorder between runs.
     text = "Call (614) 555-0142 or (614) 555-0199"
     assert scraper.extract_phones(text) == scraper.extract_phones(text)
+
+
+def test_phones_come_back_in_the_order_the_page_lists_them():
+    """Not in the order the regexes happen to run.
+
+    The patterns are tried one after another, so a US number further down the
+    page used to jump ahead of an international one printed above it — the
+    call sheet came out in the wrong order.
+    """
+    scraper = _phone_scraper()
+    text = "International +44 20 7946 0958 first, then US (614) 555-0142."
+    assert scraper.extract_phones(text) == ["+44 20 7946 0958", "(614) 555-0142"]
+
+
+def test_two_countries_are_two_numbers():
+    """Keying on the last ten digits alone lost one of them.
+
+    +44 20 7946 0958 and +33 20 7946 0958 share their final ten digits but are
+    different phones, and dropping one silently removes a real contact.
+    """
+    scraper = _phone_scraper()
+    numbers = scraper.extract_phones(
+        "London +44 20 7946 0958 and Paris +33 20 7946 0958")
+    assert len(numbers) == 2, numbers
+
+
+def test_a_matching_bundled_driver_is_put_on_path(tmp_path, monkeypatch):
+    """Selenium checks PATH before it downloads, so this is what keeps a
+    first run offline."""
+    from gui import runtime
+
+    drivers = tmp_path / "drivers"
+    drivers.mkdir()
+    (drivers / "chromedriver.exe").write_text("binary", encoding="utf-8")
+    (drivers / "VERSION").write_text("141.0.7390.122\n", encoding="utf-8")
+
+    monkeypatch.setattr(runtime, "bundled_driver_dir", lambda: drivers)
+    monkeypatch.setattr(runtime, "installed_chrome_version", lambda: "141.0.7390.37")
+    monkeypatch.setenv("PATH", "/usr/bin")
+
+    assert runtime.use_bundled_driver() == drivers
+    import os
+
+    assert os.environ["PATH"].split(os.pathsep)[0] == str(drivers)
+
+
+def test_a_stale_bundled_driver_stands_aside(tmp_path, monkeypatch):
+    """A driver only drives its own major version of Chrome, and Chrome
+    updates itself. Forcing a mismatched driver would fail outright; standing
+    aside lets Selenium fetch one that works."""
+    from gui import runtime
+
+    drivers = tmp_path / "drivers"
+    drivers.mkdir()
+    (drivers / "chromedriver.exe").write_text("binary", encoding="utf-8")
+    (drivers / "VERSION").write_text("152.0.7977.54\n", encoding="utf-8")
+
+    monkeypatch.setattr(runtime, "bundled_driver_dir", lambda: drivers)
+    monkeypatch.setattr(runtime, "installed_chrome_version", lambda: "141.0.7390.37")
+    monkeypatch.setenv("PATH", "/usr/bin")
+
+    assert runtime.use_bundled_driver() is None
+    import os
+
+    assert str(drivers) not in os.environ["PATH"]
+
+
+def test_an_unknown_chrome_version_still_prefers_the_bundled_driver(tmp_path, monkeypatch):
+    """Not knowing is not a mismatch — working offline is the point."""
+    from gui import runtime
+
+    drivers = tmp_path / "drivers"
+    drivers.mkdir()
+    (drivers / "chromedriver.exe").write_text("binary", encoding="utf-8")
+    (drivers / "VERSION").write_text("141.0.7390.122\n", encoding="utf-8")
+
+    monkeypatch.setattr(runtime, "bundled_driver_dir", lambda: drivers)
+    monkeypatch.setattr(runtime, "installed_chrome_version", lambda: "")
+    monkeypatch.setenv("PATH", "/usr/bin")
+
+    assert runtime.use_bundled_driver() == drivers
+
+
+def test_the_spec_ships_the_driver_folder():
+    spec = (Path(__file__).resolve().parent.parent
+            / "packaging" / "LocalLeadScraperPro.spec").read_text(encoding="utf-8")
+    assert '"drivers"' in spec, "the driver folder must be bundled into the exe"
 
 
 # --------------------------------------------------------------------------- #

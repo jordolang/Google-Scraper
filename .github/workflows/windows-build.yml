@@ -105,10 +105,12 @@ jobs:
           LLSP_LIVE_TESTS: "1"
         run: pytest tests/test_live_scrape.py -q
 
-      - name: Generate icon and version resource
+      - name: Generate icon, version resource and bundled driver
         run: |
           python packaging/make_icon.py
           python packaging/make_version_info.py
+          # Ships inside the .exe so a first run needs no download.
+          python packaging/fetch_chromedriver.py --platform win64
 
       - name: Build LocalLeadScraperPro.exe
         run: pyinstaller --clean --noconfirm packaging/LocalLeadScraperPro.spec

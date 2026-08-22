@@ -239,18 +239,26 @@ class ContactScraper:
         """
         found = {}
         for pattern in self.phone_patterns:
-            for match in pattern.findall(text):
-                candidate = match.strip()
+            for match in pattern.finditer(text):
+                candidate = match.group().strip()
                 digits = re.sub(r'\D', '', candidate)
                 if len(digits) < 10:
                     continue
-                # The last ten digits identify the number; a leading 1 or a
-                # country code should not make it look like a different one.
-                key = digits[-10:]
-                best = found.get(key)
-                if best is None or len(candidate) > len(best):
-                    found[key] = candidate
-        return list(found.values())
+                # Key on every digit, so +44 20 7946 0958 and +33 20 7946 0958
+                # stay two numbers — only the optional North American trunk 1
+                # is the same number written two ways.
+                key = digits[1:] if len(digits) == 11 and digits[0] == "1" else digits
+                position, best = found.get(key, (match.start(), ""))
+                found[key] = (
+                    min(position, match.start()),
+                    candidate if len(candidate) > len(best) else best,
+                )
+        # Ordered by where each number appears in the page, not by which regex
+        # happened to match it first: the patterns run one after the other, so
+        # insertion order would put every US match ahead of an international
+        # one printed above it.
+        return [candidate for _position, candidate
+                in sorted(found.values(), key=lambda item: item[0])]
 
     def extract_contact_names(self, text):
         """Extract potential contact names from text"""

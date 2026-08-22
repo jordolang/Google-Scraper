@@ -110,3 +110,6 @@ search
 dist/
 build/
 *.spec.bak
+
+# Fetched at build time by packaging/fetch_chromedriver.py
+packaging/drivers/

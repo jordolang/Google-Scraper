@@ -99,7 +99,10 @@ def prepare() -> Path:
         # it at the user's folder before anything writes a CSV.
         os.environ.setdefault("GOOGLE_SCRAPER_DATA_DIR", str(target / "data"))
         globals()["_RESOLVED_DIR"] = target
+        use_bundled_driver()
         seed_assets()
+    else:
+        use_bundled_driver()
         # The pitch script is looked up relative to the tui package, which the
         # bundle flattens; point it at the editable copy instead.
         try:
@@ -111,6 +114,97 @@ def prepare() -> Path:
         except Exception:  # pragma: no cover - the fallback script still works
             pass
     return working_dir()
+
+
+def bundled_driver_dir() -> Optional[Path]:
+    """The folder holding the chromedriver shipped with the app, if any."""
+    for base in (bundle_dir(), Path(__file__).resolve().parent.parent / "packaging"):
+        drivers = base / "drivers"
+        if drivers.is_dir() and any(drivers.glob("chromedriver*")):
+            return drivers
+    return None
+
+
+def _major(version: str) -> str:
+    """"141.0.7390.37" -> "141"."""
+    return (version or "").strip().split(".")[0]
+
+
+def bundled_driver_version() -> str:
+    """The version of the chromedriver shipped with the app, if known."""
+    drivers = bundled_driver_dir()
+    if drivers is None:
+        return ""
+    stamp = drivers / "VERSION"
+    try:
+        return stamp.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def installed_chrome_version() -> str:
+    """The version of Chrome on this machine, or "" if it cannot be told."""
+    if os.name == "nt":  # pragma: no cover - Windows only
+        try:
+            import winreg
+
+            for root in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+                try:
+                    with winreg.OpenKey(root, r"Software\Google\Chrome\BLBeacon") as key:
+                        value, _type = winreg.QueryValueEx(key, "version")
+                        if value:
+                            return str(value)
+                except OSError:
+                    continue
+        except Exception:  # noqa: BLE001 - detection is best-effort
+            pass
+        return ""
+
+    import shutil
+    import subprocess
+
+    for name in ("google-chrome", "chromium", "chromium-browser", "chrome"):
+        binary = shutil.which(name)
+        if not binary:
+            continue
+        try:
+            out = subprocess.run([binary, "--version"], capture_output=True,
+                                 text=True, timeout=15).stdout
+        except Exception:  # noqa: BLE001 - a browser that will not answer
+            continue
+        for word in out.split():
+            if word[:1].isdigit():
+                return word
+    return ""
+
+
+def use_bundled_driver() -> Optional[Path]:
+    """Put the bundled chromedriver first on PATH, when it fits this Chrome.
+
+    Selenium looks on PATH before it downloads anything, so this is what keeps
+    a first run from reaching out to the internet — the app is meant to work
+    from the .exe alone.
+
+    The catch is that a driver only drives its own major version of Chrome,
+    and Chrome updates itself. If the two do not match, standing aside is
+    better than failing: Selenium fetches a matching driver, which needs the
+    network but does work. So the bundle covers the normal case offline, and
+    the exception still gets someone running.
+    """
+    drivers = bundled_driver_dir()
+    if drivers is None:
+        return None
+
+    bundled, chrome = bundled_driver_version(), installed_chrome_version()
+    # An unknown version on either side is not evidence of a mismatch; prefer
+    # the bundled driver, since working offline is the point.
+    if bundled and chrome and _major(bundled) != _major(chrome):
+        return None
+
+    entries = os.environ.get("PATH", "").split(os.pathsep)
+    if str(drivers) not in entries:
+        os.environ["PATH"] = os.pathsep.join([str(drivers)] + entries)
+    return drivers
 
 
 def _writable_dir(preferred: Path) -> Path:

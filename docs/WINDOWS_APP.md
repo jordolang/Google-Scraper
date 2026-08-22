@@ -47,6 +47,39 @@ it.
 ### Option B — build it yourself on a Windows machine
 
 
+## What is inside the .exe, and what is not
+
+Everything the app needs to run is in the one file. Nothing is downloaded, and
+nothing is installed:
+
+| | |
+| --- | --- |
+| Python itself, PySide6, Selenium, BeautifulSoup, lxml | bundled |
+| The app, its email templates, the pitch script | bundled |
+| **chromedriver** | bundled — see below |
+| **Google Chrome** | **not bundled; must already be on the machine** |
+
+Chrome is the one thing the .exe cannot carry. It is a separate ~150 MB
+application with its own installer and its own licence, and Selenium works by
+driving the copy of Chrome you already have rather than shipping its own. Most
+Windows machines have it; if yours does not, install it once from
+google.com/chrome. **Demo mode** (Settings → Scraping) tours every screen with
+no browser at all.
+
+### The bundled chromedriver
+
+Selenium normally downloads a driver the first time it runs ("Selenium
+Manager") — a download nobody asked for, that needs internet and fails behind a
+locked-down network. `packaging/fetch_chromedriver.py` puts one in the bundle
+at build time instead, and the app adds it to `PATH` at startup so Selenium
+finds it and downloads nothing.
+
+A driver only drives its own major version of Chrome, and Chrome updates
+itself. When the two do not match the app steps out of the way and lets
+Selenium fetch a matching driver — that needs the network, but it works, which
+beats refusing to run. Each release bundles the driver for the then-current
+stable Chrome, so the normal case stays offline.
+
 ## Why the bundle collects selenium whole
 
 Selenium 4 resolves its driver classes through a lazy string map:

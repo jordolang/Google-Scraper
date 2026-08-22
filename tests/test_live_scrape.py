@@ -110,6 +110,8 @@ def test_the_window_scans_a_live_site_end_to_end(site, monkeypatch, tmp_path):
             app.thread().msleep(50)
             waited += 50
         QApplication.processEvents()
+        # Otherwise a worker that stalls after setting these fields passes.
+        assert not scraper.runner.running, "the live scan did not finish in 120s"
 
         lead = window.state.leads[0]
         assert lead.business.emails == ["hello@acmeroofing.example"], (

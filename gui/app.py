@@ -178,7 +178,9 @@ RUNTIME_IMPORTS = (
     "email_config",
     "tui.pitch_script",
     "salescall.objections",
+    "shutil",
     "smtplib",
+    "subprocess",
     "email.mime.multipart",
     "email.mime.text",
     "csv",
@@ -246,13 +248,26 @@ def _check_pipeline_runs() -> list:
                 if "<" not in message.html or not message.subject:
                     problems.append("composing an email produced no rendered HTML")
 
+            # Rows are sequences of cells, not dicts. Passing dicts wrote the
+            # column name into the data row, and a size-only check happily
+            # passed it — so read the file back and look at the value.
+            rows = [["Acme"]]
             csv_path = root / "selftest.csv"
-            services.export_csv(csv_path, ["name"], [{"name": "Acme"}])
+            services.export_csv(csv_path, ["name"], rows)
             xlsx_path = root / "selftest.xlsx"
-            services.export_xlsx(xlsx_path, ["name"], [{"name": "Acme"}])
+            services.export_xlsx(xlsx_path, ["name"], rows)
             for path in (csv_path, xlsx_path):
                 if not path.exists() or not path.stat().st_size:
                     problems.append(f"export produced no {path.suffix} file")
+            written = csv_path.read_text(encoding="utf-8-sig").split()
+            if written != ["name", "Acme"]:
+                problems.append(f"CSV export wrote {written!r}, expected the row")
+            import zipfile
+
+            with zipfile.ZipFile(xlsx_path) as book:
+                sheet = book.read("xl/worksheets/sheet1.xml").decode("utf-8")
+            if "Acme" not in sheet:
+                problems.append("XLSX export did not contain the row")
     except Exception as exc:  # noqa: BLE001 - that is the thing being tested
         problems.append(f"demo pipeline: {type(exc).__name__}: {exc}")
     return problems
@@ -290,13 +305,18 @@ def selftest(argv=None) -> int:
         problems.append(f"no email templates in {templates}")
     if not runtime.bundle_dir().exists():
         problems.append("bundle directory missing")
+    # A packaged build without the driver still works, but only by downloading
+    # one on first use — which is exactly what shipping it is meant to avoid.
+    if runtime.frozen() and runtime.bundled_driver_dir() is None:
+        problems.append("no bundled chromedriver: run packaging/fetch_chromedriver.py")
     for line in problems:
         print(f"FAIL {line}", file=sys.stderr)
     if problems:
         return 1
+    driver = runtime.bundled_driver_version() or "none bundled"
     print(f"OK  {len(window.pages)} pages, {len(rendered)} templates, "
           f"{len(RUNTIME_IMPORTS)} runtime imports, demo pipeline ran, "
-          f"data dir {runtime.working_dir()}")
+          f"chromedriver {driver}, data dir {runtime.working_dir()}")
     return 0
 
 
