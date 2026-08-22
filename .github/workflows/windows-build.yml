@@ -135,20 +135,6 @@ jobs:
         # no ARM64 Windows driver, and this pairing needs none.
         run: python packaging/fetch_chromium.py --platform ${{ matrix.chromium }}
 
-      - name: Check the payload holds a browser and a driver
-        run: |
-          python - <<'PY'
-          import json, zipfile
-          with zipfile.ZipFile("packaging/browser/browser-payload.zip") as payload:
-              names = payload.namelist()
-              manifest = json.loads(payload.read("browser/manifest.json"))
-          browser = [n for n in names if "chrome-" in n and n.endswith(".zip")]
-          driver = [n for n in names if "chromedriver" in n and n.endswith(".zip")]
-          print("revision", manifest["revision"], "->", names)
-          assert browser, "the payload carries no browser archive"
-          assert driver, "the payload carries no chromedriver archive"
-          PY
-
       - name: Build LocalLeadScraperPro.exe
         run: pyinstaller --clean --noconfirm packaging/LocalLeadScraperPro.spec
 

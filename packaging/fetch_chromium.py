@@ -131,9 +131,33 @@ def main() -> int:
         payload.writestr(f"browser/{browser_zip}", browser)
         payload.writestr(f"browser/{driver_zip}", driver)
 
+    verify(PAYLOAD)
     size = PAYLOAD.stat().st_size / 1048576
     print(f"wrote {PAYLOAD.relative_to(ROOT.parent)} ({size:.0f} MB)")
     return 0
+
+
+def verify(payload: Path) -> None:
+    """Fail here rather than shipping an executable that cannot scrape.
+
+    A truncated or half-written archive would otherwise be appended to the
+    .exe and only reveal itself when someone pressed Start Scraping.
+    """
+    with zipfile.ZipFile(payload) as archive:
+        broken = archive.testzip()
+        if broken is not None:
+            raise SystemExit(f"the payload is corrupt at {broken}")
+        names = archive.namelist()
+        manifest = json.loads(archive.read("browser/manifest.json"))
+
+    browser = [n for n in names if "chrome-" in n and n.endswith(".zip")]
+    driver = [n for n in names if "chromedriver" in n and n.endswith(".zip")]
+    if not browser:
+        raise SystemExit("the payload carries no browser archive")
+    if not driver:
+        raise SystemExit("the payload carries no chromedriver archive")
+    print(f"  verified r{manifest['revision']}: "
+          f"{Path(browser[0]).name} + {Path(driver[0]).name}")
 
 
 if __name__ == "__main__":
