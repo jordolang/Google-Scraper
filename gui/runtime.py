@@ -351,7 +351,12 @@ def _resign(app: Path, say) -> None:
     if not codesign:
         return
     try:
-        result = subprocess.run(
+        # codesign is whatever shutil.which resolved that fixed name to, and
+        # app is a folder this module chose under the user's own data dir —
+        # nothing here comes from a page, a CSV or a setting, and it is a
+        # list, so there is no shell to inject into.
+        # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
+        result = subprocess.run(  # noqa: S603
             [codesign, "--force", "--deep", "--sign", "-", str(app)],
             capture_output=True, text=True, timeout=300, check=False)
     except Exception as exc:  # noqa: BLE001 - signing is a best-effort repair
