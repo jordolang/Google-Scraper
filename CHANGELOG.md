@@ -11,6 +11,19 @@ The bump is driven by the commit subject: `feat:` is a feature, everything else
 (`fix:`, `docs:`, `chore:`, `refactor:`…) is a fix-level change. See
 [Versioning](README.md#️-versioning) for the full rules.
 
+## [1.4] - 2026-08-22
+
+### Added
+- bundle Chromium in the exe, and build for ARM64 as well as x64
+- ship chromedriver inside the exe so nothing downloads at first run
+
+### Fixed
+- hand Selenium the bundled driver instead of letting it look for one
+- verify the browser payload in Python, not a bash heredoc
+- two phone numbers side by side stay two numbers
+- one number per phone, and prove the bundled driver runs
+- package selenium whole so the .exe can actually scrape
+
 ## [1.3b] - 2026-08-21
 
 ### Changed
