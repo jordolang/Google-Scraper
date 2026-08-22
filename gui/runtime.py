@@ -177,7 +177,7 @@ def installed_chrome_version() -> str:
             # setting, and it is a list, so there is no shell to inject into.
             # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
             out = subprocess.run([binary, "--version"], capture_output=True,  # noqa: S603
-                                 text=True, timeout=15).stdout
+                                 text=True, timeout=15, check=False).stdout
         except Exception:  # noqa: BLE001 - a browser that will not answer
             continue
         for word in out.split():

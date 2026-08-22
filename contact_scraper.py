@@ -247,20 +247,33 @@ class ContactScraper:
         for pattern in self.phone_patterns:
             for match in pattern.finditer(text):
                 candidate = match.group().strip()
-                if len(re.sub(r'\D', '', candidate)) >= 10:
-                    spans.append((match.start(), match.end(), candidate))
+                digits = re.sub(r'\D', '', candidate)
+                # E.164 tops out at 15 digits. Anything longer is the
+                # international pattern running two numbers together — its
+                # separators include whitespace, so "6145550142 6145550199"
+                # matches as one twenty-digit "number" that belongs to nobody.
+                if 10 <= len(digits) <= 15:
+                    spans.append((match.start(), match.end(), candidate, digits))
 
-        # A span sitting entirely inside a longer one is the same number seen
-        # through a narrower pattern: the US pattern matches "2079460958" out
-        # of "+44 2079460958", which has different digits and so would survive
-        # de-duplication as a second, wrong number.
+        def same_number(outer: str, inner: str) -> bool:
+            """Whether the longer match is the shorter one with a country code.
+
+            Only then is the inner span a duplicate. Two adjacent numbers
+            caught by one greedy match are not the same number, and dropping
+            them would lose a real contact.
+            """
+            return outer.endswith(inner) and len(outer) - len(inner) <= 3
+
+        # The US pattern matches "2079460958" out of "+44 2079460958"; its
+        # digits differ, so de-duplication alone would keep both.
         whole = [
             (start, candidate)
-            for index, (start, end, candidate) in enumerate(spans)
+            for index, (start, end, candidate, digits) in enumerate(spans)
             if not any(other_start <= start and end <= other_end
                        and (other_end - other_start) > (end - start)
-                       for other, (other_start, other_end, _text) in enumerate(spans)
-                       if other != index)
+                       and same_number(other_digits, digits)
+                       for other, (other_start, other_end, _text, other_digits)
+                       in enumerate(spans) if other != index)
         ]
 
         found = {}

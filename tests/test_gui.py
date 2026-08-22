@@ -670,6 +670,22 @@ def test_a_partial_match_inside_a_longer_number_is_not_a_second_number():
         "+44 2079460958"]
 
 
+def test_two_numbers_side_by_side_stay_two_numbers():
+    """Dropping a contained span must not swallow a neighbour.
+
+    The international pattern's separators include whitespace, so
+    "6145550142 6145550199" matches as one twenty-digit run. Discarding every
+    span inside a longer one then threw away both real numbers and kept the
+    glued nonsense — so containment only counts when the outer really is the
+    inner with a country code in front.
+    """
+    scraper = _phone_scraper()
+    assert scraper.extract_phones("6145550142 6145550199") == [
+        "6145550142", "6145550199"]
+    assert scraper.extract_phones("Call 6145550142 6145550199 now") == [
+        "6145550142", "6145550199"]
+
+
 def test_phones_come_back_in_the_order_the_page_lists_them():
     """Not in the order the regexes happen to run.
 
