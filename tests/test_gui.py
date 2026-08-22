@@ -797,6 +797,38 @@ def test_the_browser_payload_is_read_from_the_executable_itself(tmp_path, monkey
         assert "browser/manifest.json" in archive.namelist()
 
 
+def test_a_mac_bundle_carries_the_payload_as_a_sealed_resource(tmp_path, monkeypatch):
+    """On macOS the browser is a bundle resource, not appended to the binary.
+
+    Appending would leave the payload outside the code signature, and Apple
+    Silicon refuses to run a binary that does not match what was signed. A
+    resource is sealed along with everything else, so the bundle stays valid.
+    """
+    import json
+    import zipfile
+
+    from gui import runtime
+
+    bundle = tmp_path / "Local Lead Scraper Pro.app"
+    binary = bundle / "Contents" / "MacOS" / "LocalLeadScraperPro"
+    binary.parent.mkdir(parents=True)
+    binary.write_bytes(b"\x00" * 4096)           # signed, and left alone
+    resources = bundle / "Contents" / "Resources"
+    resources.mkdir(parents=True)
+    with zipfile.ZipFile(resources / runtime.BUNDLE_PAYLOAD_NAME, "w") as archive:
+        archive.writestr("browser/manifest.json", json.dumps({"revision": "1"}))
+
+    monkeypatch.setattr(runtime, "frozen", lambda: True)
+    monkeypatch.setattr(runtime.sys, "executable", str(binary))
+    monkeypatch.setattr(runtime.sys, "platform", "darwin")
+
+    assert runtime.payload_path() == resources / runtime.BUNDLE_PAYLOAD_NAME
+    found = runtime.embedded_payload()
+    assert found is not None
+    with found as archive:
+        assert "browser/manifest.json" in archive.namelist()
+
+
 def test_no_payload_means_use_the_installed_browser(tmp_path, monkeypatch):
     """A build without a bundled browser must not pretend it has one."""
     from gui import runtime

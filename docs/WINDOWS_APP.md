@@ -102,8 +102,8 @@ stable Chrome, so the normal case stays offline.
 
 ## The Mac builds
 
-The same app, built as a `.app` bundle on real Mac runners — `macos-13` for
-Intel and `macos-14` for Apple Silicon, because neither PyInstaller nor Qt
+The same app, built as a `.app` bundle on real Mac runners — `macos-15-intel`
+for Intel and `macos-15` for Apple Silicon, because neither PyInstaller nor Qt
 cross-compiles. PySide6 ships a `universal2` wheel, so the Python side is
 identical between them; what differs is the machine and the Chromium build
 that goes with it (`Mac` and `Mac_Arm` snapshots respectively).

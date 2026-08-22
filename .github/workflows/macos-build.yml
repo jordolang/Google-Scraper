@@ -53,7 +53,8 @@ on:
 
 jobs:
   build:
-    # macos-13 is the last Intel runner; macos-14 and later are Apple Silicon.
+    # macos-15-intel is the Intel runner; the bare macos-15 label is Apple
+    # Silicon. (macos-13 was retired, and macos-14 is on its way out.)
     # PySide6 ships a universal2 wheel, so the Python side is identical — what
     # differs is the machine, and the Chromium build that goes with it.
     strategy:
@@ -61,10 +62,10 @@ jobs:
       matrix:
         include:
           - arch: intel
-            runner: macos-13
+            runner: macos-15-intel
             chromium: Mac
           - arch: apple-silicon
-            runner: macos-14
+            runner: macos-15
             chromium: Mac_Arm
     runs-on: ${{ matrix.runner }}
     name: build (${{ matrix.arch }})
@@ -107,9 +108,11 @@ jobs:
       - name: Build the app bundle
         run: pyinstaller --clean --noconfirm packaging/LocalLeadScraperPro.spec
 
-      - name: Append the browser payload
+      - name: Add the browser payload
         # After PyInstaller, not inside it: a one-file build unpacks everything
         # it bundles on every launch, which would add minutes to each start.
+        # This carries it as a bundle resource and re-signs, so the payload is
+        # sealed by the signature rather than sitting outside it.
         run: python packaging/append_payload.py "dist/$BUNDLE"
 
       - name: Check the app launches

@@ -265,9 +265,10 @@ def test_all_four_desktop_builds_are_wired_into_the_release():
     mac = _workflow("macos-build.yml")
     by_arch = {e["arch"]: e for e in mac["jobs"]["build"]["strategy"]["matrix"]["include"]}
     assert set(by_arch) == {"intel", "apple-silicon"}
-    # macos-13 is the last Intel runner; 14 and later are Apple Silicon.
-    assert by_arch["intel"]["runner"] == "macos-13"
-    assert by_arch["apple-silicon"]["runner"] == "macos-14"
+    # Intel needs the -intel label; the bare one is Apple Silicon. Retired
+    # labels (macos-13, and macos-14 next) leave the job queued forever.
+    assert by_arch["intel"]["runner"] == "macos-15-intel"
+    assert by_arch["apple-silicon"]["runner"] == "macos-15"
     # Each must fetch the Chromium built for its own silicon.
     assert by_arch["intel"]["chromium"] == "Mac"
     assert by_arch["apple-silicon"]["chromium"] == "Mac_Arm"

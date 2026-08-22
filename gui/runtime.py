@@ -225,18 +225,39 @@ CHROME_BINARY_ENV = "LLSP_CHROME_BINARY"
 CHROMEDRIVER_ENV = "LLSP_CHROMEDRIVER"
 
 
-def embedded_payload():
-    """The browser archive appended to this executable, if there is one.
+#: What a .app calls the payload it carries in Contents/Resources. Kept in
+#: step with packaging/append_payload.py.
+BUNDLE_PAYLOAD_NAME = "browser-payload.zip"
 
-    The build appends it after PyInstaller's own archive: zip finds its
-    central directory from the end of the file, so the executable can read
-    its own payload, and the bootloader is unaffected by data sitting after
-    what it cares about.
+
+def payload_path() -> Path:
+    """The file the browser archive is expected to be found in.
+
+    Windows ships one .exe with the payload appended to it, so the executable
+    reads its own tail. A .app is a directory, so the payload sits beside the
+    binary as a sealed resource instead — appending to the Mach-O there would
+    put it outside the code signature, which Apple Silicon refuses to run.
+    """
+    executable = Path(sys.executable)
+    if sys.platform == "darwin":
+        resource = executable.resolve().parent.parent / "Resources"
+        candidate = resource / BUNDLE_PAYLOAD_NAME
+        if candidate.is_file():
+            return candidate
+    return executable
+
+
+def embedded_payload():
+    """The browser archive this build carries, if there is one.
+
+    Zip finds its central directory from the end of the file, so an appended
+    payload reads back out of the executable itself and PyInstaller's
+    bootloader is unaffected by data sitting after what it cares about.
     """
     if not frozen():
         return None
     try:
-        archive = zipfile.ZipFile(Path(sys.executable))
+        archive = zipfile.ZipFile(payload_path())
     except (OSError, zipfile.BadZipFile):
         return None
     if not any(name.startswith("browser/") for name in archive.namelist()):
