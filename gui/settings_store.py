@@ -46,10 +46,12 @@ DEFAULTS: Dict[str, Any] = {
     "dry_run": True,
     # -- storage --------------------------------------------------------
     "data_root": "",
-    # -- licence banner shown in the sidebar ----------------------------
-    "license_tier": "Pro",
-    "license_expires": "12/31/2025",
 }
+
+# The licence used to live here as two free-text fields ("Pro", "12/31/2025")
+# that the sidebar displayed and nothing enforced. It now lives in a signed
+# file managed by :mod:`licensing`; a stored tier is deliberately ignored.
+RETIRED_KEYS = ("license_tier", "license_expires")
 
 
 def config_dir() -> Path:

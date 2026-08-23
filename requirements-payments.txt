@@ -1,0 +1,19 @@
+# The licence + payment service (payments/). Server-side only — none of this
+# ships inside the desktop app.
+#
+#     pip install -r requirements-payments.txt
+#     python -m payments.server                      # development
+#     gunicorn payments.server:application           # production
+#
+# The service itself is written against the standard library: Stripe is called
+# over its REST API rather than through the SDK, webhook signatures are plain
+# hmac, and the store is sqlite3. Only two things are needed on top.
+
+# Signing licences. The desktop app can fall back to the vendored pure-Python
+# Ed25519 in licensing/_ed25519.py; the server should not — it signs constantly
+# and wants the compiled implementation.
+cryptography>=42.0.0
+
+# A production WSGI server. Any other one works; payments.server exposes a
+# plain `application` callable.
+gunicorn>=21.2.0

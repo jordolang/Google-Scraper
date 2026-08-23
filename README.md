@@ -46,6 +46,7 @@ A comprehensive Python-based toolkit for scraping business information from Goog
   - [The Contacts CSV](#the-contacts-csv)
 - [Data Exports (`data_store.py`)](#-data-exports-data_storepy)
 - [Phone Lookup (`phone_lookup.py`)](#️-phone-lookup-phone_lookuppy)
+- [Licensing & Pricing](#-licensing--pricing)
 - [Versioning](#️-versioning)
 - [Configuration](#-configuration)
 - [Documentation](#-documentation)
@@ -1101,6 +1102,51 @@ In the TUI this is the `g` / `y` action on the contacts screen; it runs against
 every business whose website scan came up empty, and what it finds flows into the
 CSVs (tagged `phone_source`), the list on screen, and the call script.
 
+## 🔑 Licensing & Pricing
+
+The app is sold two ways, at three tiers, with a 72-hour trial. Full detail in
+**[docs/PRICING.md](docs/PRICING.md)**; the design and the operator runbook are in
+**[docs/LICENSING.md](docs/LICENSING.md)**.
+
+| | Solo | Pro | Agency |
+|---|---|---|---|
+| Monthly | $39 | $89 | $199 |
+| Yearly | $390 | $890 | $1,990 |
+| One-time (never expires, 12 months of updates) | $599 | $1,299 | $2,999 |
+| Machines | 2 | 3 | 10 |
+
+**Subscription** keeps renewing and always has the newest version.
+**Perpetual** is paid once, never expires, and includes twelve months of
+updates — after that it keeps working, it just stops changing.
+
+The **72-hour trial** unlocks every feature; searches cap at 25 results and
+email sending stays in dry-run.
+
+### From the app
+
+The desktop app has a **Licence** screen: activate a key, start the trial, see
+what your plan covers, buy or upgrade, and hand a computer's seat back.
+
+### From the terminal
+
+```bash
+python app.py --licence status       # what this computer is running
+python app.py --licence plans        # the price list
+python app.py --licence trial        # start the free 72 hours
+python app.py --licence activate LLSP-XXXXX-XXXXX-XXXXX-XXXXX
+python app.py --licence deactivate   # free this computer's seat
+```
+
+### How it behaves
+
+- **Offline-first.** Licences are Ed25519-signed and verified on your machine.
+  No network is needed to open the app or to use it — only to activate, and
+  occasionally to re-check.
+- **Never locked out.** An expired or lapsed licence falls back to a read-only
+  Reader mode: everything you already scraped stays readable and exportable.
+- **Seats you control.** Each plan covers several computers, and any of them can
+  release its seat from the Licence screen.
+
 ## 🏷️ Versioning
 
 The project is at the version in **[`VERSION`](VERSION)**, and every change is
@@ -1180,7 +1226,10 @@ page_load_timeout = 30  # Seconds to wait for page load
 - **[SALES_CALL_README.md](docs/SALES_CALL_README.md)** - Sales Call Cockpit guide
 - **[EMAIL_GENERATOR_README.md](docs/EMAIL_GENERATOR_README.md)** - Detailed email generator guide
 - **[EMAIL_SENDER_README.md](docs/EMAIL_SENDER_README.md)** - Automated email sending guide
-- **[PRICING_BREAKDOWN.md](docs/PRICING_BREAKDOWN.md)** - Service pricing structure
+- **[PRICING.md](docs/PRICING.md)** - What the app costs: two pricing models, three tiers
+- **[LICENSING.md](docs/LICENSING.md)** - How licensing and payments work, and how to run the licence service
+- **[COMPETITIVE_ANALYSIS.md](docs/COMPETITIVE_ANALYSIS.md)** - How this measures up against the market
+- **[PRICING_BREAKDOWN.md](docs/PRICING_BREAKDOWN.md)** - Service pricing structure (what *you* charge clients)
 - **[EXCLUSIVE_OFFERS_GUIDE.md](docs/EXCLUSIVE_OFFERS_GUIDE.md)** - Special offers documentation
 - **[LINK_STRUCTURE.md](docs/LINK_STRUCTURE.md)** - URL and link architecture
 

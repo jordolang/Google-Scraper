@@ -23,6 +23,7 @@ on:
       - "gui/**"
       - "tui/**"
       - "salescall/**"
+      - "licensing/**"
       - "packaging/**"
       - "email_templates/**"
       - "run_gui.py"
