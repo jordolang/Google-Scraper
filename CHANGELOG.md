@@ -11,6 +11,11 @@ The bump is driven by the commit subject: `feat:` is a feature, everything else
 (`fix:`, `docs:`, `chore:`, `refactor:`…) is a fix-level change. See
 [Versioning](README.md#️-versioning) for the full rules.
 
+## [1.7b] - 2026-08-23
+
+### Fixed
+- reliable Google Maps phone extraction (card harvest + glyph strip)
+
 ## [1.7a] - 2026-08-23
 
 ### Fixed
