@@ -12,7 +12,10 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from licensing import get_manager, plans
+
 from .. import services, theme, runtime
+from ..licensing_ui import cap_notice, require
 from ..state import Lead
 from ..widgets.common import (
     Card, DataTable, Field, Pill, Stat, button, hint, progress_bar, title,
@@ -206,10 +209,25 @@ class DashboardPage(Page):
             QMessageBox.warning(self, "Nothing to search",
                                 "Enter at least one industry or keyword.")
             return
+        if not require(self, plans.SCRAPE_MAPS, action="Searching Google Maps"):
+            return
         self._save_settings()
 
+        # The licence caps two things here: how many industries run in one
+        # batch, and how many results each returns. Both are clipped rather
+        # than refused — a Solo licence asked for six industries should run the
+        # two it has, not nothing.
+        manager = get_manager()
+        allowed_terms = manager.max_industries(len(terms))
+        if allowed_terms < len(terms):
+            cap_notice(self, len(terms), allowed_terms, "industries")
+            terms = terms[:allowed_terms]
+
         location = self.location.text().strip()
-        cap = int(self.state.settings.get("max_results", 50))
+        requested = int(self.state.settings.get("max_results", 50))
+        cap = manager.max_results(requested)
+        if cap < requested:
+            cap_notice(self, requested, cap, "results")
         scrolls = services.scroll_budget(cap)
         pipeline = self.state.make_pipeline()
         demo = self.state.demo

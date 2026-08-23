@@ -19,6 +19,7 @@ NAV_ITEMS: Sequence[Tuple[str, str, str]] = (
     ("scraper", "Website Scraper", "◎"),
     ("outreach", "Contacts & Outreach", "✉"),
     ("settings", "Settings", "⚙"),
+    ("license", "Licence", "⚿"),
     ("tools", "Tools", "⚒"),
     ("logs", "Logs", "☰"),
     ("help", "Help", "?"),
@@ -97,7 +98,7 @@ class Sidebar(QWidget):
         layout.addStretch(1)
 
         # -- licence + status ---------------------------------------------
-        self.license_label = QLabel("License: Pro")
+        self.license_label = QLabel("Licence: —")
         self.license_label.setObjectName("SidebarCaption")
         self.expiry_label = QLabel("Expires: —")
         self.expiry_label.setObjectName("SidebarCaption")
@@ -116,7 +117,7 @@ class Sidebar(QWidget):
             button.setChecked(True)
 
     def set_license(self, tier: str, expires: str) -> None:
-        self.license_label.setText(f"License: {tier}")
+        self.license_label.setText(f"Licence: {tier}")
         self.expiry_label.setText(f"Expires: {expires}")
 
     def set_status(self, text: str, tone: str = "idle") -> None:

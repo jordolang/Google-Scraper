@@ -10,7 +10,10 @@ from PySide6.QtWidgets import (
     QComboBox, QFileDialog, QHBoxLayout, QMessageBox, QTabWidget, QVBoxLayout, QWidget,
 )
 
+from licensing import plans
+
 from .. import services, theme
+from ..licensing_ui import require
 from ..state import AppState, Lead
 from ..widgets.common import Card, DataTable, button, hint, search_box, title
 from . import Page
@@ -189,6 +192,9 @@ class TablePanel(QWidget):
         matched = self.matching()
         if not matched:
             return
+        feature = plans.EXPORT_XLSX if fmt == "xlsx" else plans.EXPORT_CSV
+        if not require(self, feature, action=f"{fmt.upper()} export"):
+            return
         suggested = services.default_export_dir(self.state.settings) / \
             services.suggested_filename(self.export_prefix, fmt)
         label = "CSV files (*.csv)" if fmt == "csv" else "Excel workbook (*.xlsx)"
@@ -196,10 +202,18 @@ class TablePanel(QWidget):
             self, f"Export {self.export_prefix}", str(suggested), label)
         if not path:
             return
-        rows = [self.row_builder(lead) for lead in matched]
+        rows, dropped = services.licensed_rows(
+            self.row_builder(lead) for lead in matched)
         writer = services.export_csv if fmt == "csv" else services.export_xlsx
         writer(Path(path), self.headers, rows)
         self.state.log("export", f"Exported {len(rows)} row(s) → {path}")
+        if dropped:
+            QMessageBox.information(
+                self, "Exported (trial limit)",
+                f"Saved {len(rows)} rows to\n{path}\n\n{dropped} more row(s) "
+                "were left out: trial exports are capped. A licence exports "
+                "everything you have collected, including these.")
+            return
         QMessageBox.information(self, "Exported", f"Saved {len(rows)} rows to\n{path}")
 
 

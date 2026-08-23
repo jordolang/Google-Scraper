@@ -431,5 +431,20 @@ def main():
     print("\n✨ Done! Check the generated_emails folder for your personalized emails.")
 
 
+def _check_licence() -> None:
+    """Refuse to run unlicensed, with a message rather than a traceback.
+
+    Running the module directly is a supported way to use this app, so it is
+    gated exactly like the desktop screens are. The check hangs off the
+    ``__main__`` guard rather than off ``main`` itself, because importing this
+    module — which the tests, the TUI and the GUI all do — must never depend
+    on a licence.
+    """
+    from licensing import console, plans
+
+    console.require_or_exit(plans.EMAIL_COMPOSE, action="Generating emails")
+
+
 if __name__ == "__main__":
+    _check_licence()
     main()

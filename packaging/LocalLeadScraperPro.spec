@@ -57,6 +57,12 @@ hiddenimports = (
     collect_submodules("selenium")
     + collect_submodules("bs4")
     + collect_submodules("salescall")
+    # The whole licensing package: gui/licensing_ui.py and the pages import it
+    # eagerly, but licensing.crypto picks its backend at run time and
+    # licensing.machine imports winreg only on Windows — neither is something
+    # static analysis follows reliably. A bundle missing any of it is a bundle
+    # that cannot verify a licence, which means every customer in reader mode.
+    + collect_submodules("licensing")
     + [
         "lxml",
         "lxml.etree",

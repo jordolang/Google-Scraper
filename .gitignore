@@ -114,3 +114,11 @@ build/
 # Fetched at build time; both are hundreds of megabytes of binary.
 packaging/drivers/
 packaging/browser/
+
+# Licence server state and anything that could carry a signing key. The private
+# key belongs in the server's environment and one offline backup, never here.
+licenses.db
+licenses.db-wal
+licenses.db-shm
+license.json
+*.licence-key

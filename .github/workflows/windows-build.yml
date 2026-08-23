@@ -23,6 +23,7 @@ on:
       - "gui/**"
       - "tui/**"
       - "salescall/**"
+      - "licensing/**"
       - "packaging/**"
       - "email_templates/**"
       - "run_gui.py"
@@ -135,6 +136,24 @@ jobs:
         # no ARM64 Windows driver, and this pairing needs none.
         run: python packaging/fetch_chromium.py --platform ${{ matrix.chromium }}
 
+      - name: Embed the licence public key
+        # The key the app verifies licences with. Public by nature — it is safe
+        # in a repository variable and safe inside the .exe — but it has to be
+        # written into the source before PyInstaller runs, because the frozen
+        # app reads the constant, not this runner's environment.
+        #
+        # Deliberately not `keygen`: that would mint a *new* pair on every
+        # build, so each release would trust a different key and every licence
+        # already issued would stop verifying.
+        env:
+          LLSP_LICENSE_PUBKEY: ${{ vars.LLSP_LICENSE_PUBKEY }}
+        run: |
+          if ($env:LLSP_LICENSE_PUBKEY) {
+            python -m payments.cli set-public-key $env:LLSP_LICENSE_PUBKEY
+          } else {
+            Write-Host "::notice::LLSP_LICENSE_PUBKEY is not set; building an unsigned development bundle that cannot verify licences."
+          }
+
       - name: Build LocalLeadScraperPro.exe
         run: pyinstaller --clean --noconfirm packaging/LocalLeadScraperPro.spec
 
@@ -159,6 +178,10 @@ jobs:
           # binary, so the call operator returns immediately without waiting and
           # leaves $LASTEXITCODE empty, which reads as a failure even when the
           # self-test passed.
+          # A release must not ship a bundle that cannot verify a licence, so
+          # the self-test treats a missing key as fatal when a tag is being
+          # published and as a warning otherwise.
+          if ($env:RELEASE_TAG) { $env:LLSP_REQUIRE_LICENCE_KEY = "1" }
           $startArgs = @{
             FilePath               = $exe
             # --with-browser unpacks the bundled Chromium and drives it, so a

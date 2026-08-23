@@ -15,7 +15,10 @@ from PySide6.QtWidgets import (
     QTabWidget, QTextBrowser, QVBoxLayout, QWidget,
 )
 
+from licensing import get_manager, plans
+
 from .. import services, theme
+from ..licensing_ui import require
 from ..scripts import ObjectionCard, ScriptStep, objection_cards, script_steps
 from ..state import AppState, Lead
 from ..widgets.common import (
@@ -366,8 +369,37 @@ class EmailCampaigns(QWidget):
         chosen = self.chosen()
         if not chosen:
             return
+        if not require(self, plans.EMAIL_COMPOSE, action="Composing emails"):
+            return
         self._save_settings()
         dry_run = self.send_method.currentIndex() == 1
+        manager = get_manager()
+
+        # A live send needs the feature *and* room left in today's allowance.
+        # A dry run needs neither: seeing what would go out is part of
+        # deciding whether to buy.
+        if not dry_run:
+            if not require(self, plans.EMAIL_SEND, action="Sending email"):
+                return
+            remaining = manager.emails_remaining_today()
+            if remaining <= 0:
+                QMessageBox.information(
+                    self, "Daily limit reached",
+                    f"Your licence covers "
+                    f"{manager.limits().max_emails_per_day} emails a day and "
+                    "today's are used up.\n\nThe count resets at midnight. "
+                    "Dry runs are never counted.")
+                return
+            if len(chosen) > remaining:
+                answer = QMessageBox.question(
+                    self, "Over today's allowance",
+                    f"{len(chosen)} recipients selected, {remaining} left on "
+                    f"today's licence allowance.\n\nSend the first "
+                    f"{remaining} now?")
+                if answer != QMessageBox.Yes:
+                    return
+                chosen = chosen[:remaining]
+
         limit = int(self.daily_limit.value())
         if len(chosen) > limit:
             answer = QMessageBox.question(
@@ -418,8 +450,13 @@ class EmailCampaigns(QWidget):
             for index, lead in enumerate(chosen, 1):
                 progress(f"[{index}/{len(chosen)}] composing for {lead.business.name}…")
                 messages.append(build(lead, pipeline))
-            return pipeline.send(messages, password=password, delay=delay,
-                                 dry_run=dry_run, progress=progress)
+            result = pipeline.send(messages, password=password, delay=delay,
+                                   dry_run=dry_run, progress=progress)
+            if not dry_run:
+                # Counted after the fact, from what the sender reports, so a
+                # run that stops halfway does not spend the whole allowance.
+                get_manager().record_emails_sent(_sent_count(result, len(messages)))
+            return result
 
         self.runner.start(job)
 
@@ -770,3 +807,21 @@ class OutreachPage(Page):
 
     def on_close(self) -> None:
         self.campaigns.on_close()
+
+
+def _sent_count(result, fallback: int) -> int:
+    """How many emails a send actually delivered.
+
+    ``Pipeline.send`` has returned a few shapes over time; anything unexpected
+    falls back to "all of them", which errs towards charging the customer's own
+    allowance rather than letting the cap be bypassed by a changed return type.
+    """
+    if isinstance(result, dict):
+        for name in ("sent", "delivered", "succeeded"):
+            if isinstance(result.get(name), int):
+                return int(result[name])
+    if isinstance(result, int):
+        return result
+    if isinstance(result, (list, tuple)):
+        return len(result)
+    return fallback

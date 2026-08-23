@@ -10,7 +10,10 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QMessageBox
 
 from contact_scraper import INSIGHT_CATEGORIES
 
+from licensing import plans
+
 from .. import theme, services, runtime
+from ..licensing_ui import require
 from ..state import Lead
 from ..widgets.common import (
     Card, DataTable, KeyValueRow, LogView, Pill, button, checkbox, hint,
@@ -209,6 +212,8 @@ class WebsiteScraperPage(Page):
     # -- running -----------------------------------------------------------
     def start(self) -> None:
         if self.runner.running:
+            return
+        if not require(self, plans.SCRAPE_CONTACTS, action="Scanning websites"):
             return
         self._targets = self.state.selected_leads() or self.state.leads
         if not self._targets:

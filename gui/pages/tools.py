@@ -10,7 +10,10 @@ from PySide6.QtWidgets import (
     QComboBox, QFileDialog, QGridLayout, QHBoxLayout, QLineEdit, QMessageBox,
 )
 
+from licensing import plans
+
 from .. import services, runtime
+from ..licensing_ui import require
 from ..widgets.common import Card, DataTable, Field, button, hint, title
 from ..workers import JobRunner
 from . import Page
@@ -56,6 +59,8 @@ class ToolsPage(Page):
 
     def find_phones(self) -> None:
         if self.runner.running:
+            return
+        if not require(self, plans.PHONE_LOOKUP, action="Phone-number lookup"):
             return
         targets = [lead for lead in self.state.leads
                    if not lead.business.has_contact_info]

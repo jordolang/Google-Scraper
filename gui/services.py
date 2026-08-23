@@ -75,11 +75,28 @@ def make_pipeline(settings: Dict) -> Pipeline:
         "smtp_username": settings.get("smtp_username") or None,
         "reply_to": settings.get("reply_to") or "",
         "scan_delay": float(settings.get("scan_delay") or 1.0),
-        "max_results": int(settings.get("max_results") or 0),
+        "max_results": licensed_max_results(settings),
     }
     if settings.get("demo_mode"):
         return DemoPipeline(**kwargs)
     return GuiLivePipeline(**kwargs)
+
+
+def licensed_max_results(settings: Dict) -> int:
+    """The per-search result cap, after the licence has had its say.
+
+    Applied here rather than at each call site because this is the one place
+    every pipeline is built. Note the zero: the settings file uses 0 to mean
+    "no limit", so an unlicensed 0 must become the licence's ceiling, not
+    unlimited.
+    """
+    from licensing import get_manager
+
+    requested = int(settings.get("max_results") or 0)
+    ceiling = get_manager().limits().max_results_per_search
+    if ceiling is None:
+        return requested
+    return ceiling if requested <= 0 else min(requested, ceiling)
 
 
 def scroll_budget(max_results: int) -> int:
@@ -120,6 +137,22 @@ def available_templates(templates_dir: Optional[str] = None) -> List[Tuple[str, 
 
 
 # -- exports ---------------------------------------------------------------
+def licensed_rows(rows: Iterable[Sequence]) -> Tuple[List[Sequence], int]:
+    """(rows to write, how many were dropped) under the licence's export cap.
+
+    Only the trial has a cap, and it is what stops "download the leads and
+    uninstall" being a workable plan. Every paid tier returns the rows
+    untouched.
+    """
+    from licensing import get_manager
+
+    materialised = list(rows)
+    ceiling = get_manager().limits().max_export_rows
+    if ceiling is None or len(materialised) <= ceiling:
+        return materialised, 0
+    return materialised[:ceiling], len(materialised) - ceiling
+
+
 def export_csv(path: Path, headers: Sequence[str], rows: Iterable[Sequence]) -> Path:
     """Write a UTF-8 CSV Excel opens cleanly (BOM keeps accents intact)."""
     path = Path(path)

@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QUrl
+from PySide6.QtCore import QUrl, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
-    QComboBox, QDoubleSpinBox, QFileDialog, QGridLayout, QHBoxLayout, QLineEdit,
-    QMessageBox, QScrollArea, QSpinBox, QVBoxLayout, QWidget,
+    QComboBox, QDoubleSpinBox, QFileDialog, QGridLayout, QHBoxLayout, QLabel,
+    QLineEdit, QMessageBox, QScrollArea, QSpinBox, QVBoxLayout, QWidget,
 )
 
 from .. import services, settings_store
@@ -18,6 +18,7 @@ from . import Page
 
 
 class SettingsPage(Page):
+    navigate_requested = Signal(str)
     heading = "Settings"
 
     def __init__(self, state, parent=None) -> None:
@@ -147,17 +148,34 @@ class SettingsPage(Page):
         return card
 
     def _build_license(self) -> Card:
-        card = Card("License")
-        self.license_tier = QComboBox()
-        self.license_tier.addItems(["Pro", "Standard", "Trial"])
-        self.license_expires = QLineEdit()
+        """A read-only summary. The licence itself is not a setting.
+
+        This card used to be two editable boxes whose values went straight into
+        settings.json and straight back out into the sidebar — a tier anyone
+        could type. What a licence says now comes from the signed licence file,
+        so this shows it and sends people to the screen that can change it.
+        """
+        card = Card("Licence")
+        self.license_summary = QLabel("—")
+        self.license_summary.setWordWrap(True)
+        self.license_summary.setStyleSheet("font-size: 12px;")
+        card.add(self.license_summary)
+        open_page = button("Open the Licence screen")
+        open_page.clicked.connect(lambda: self.navigate_requested.emit("license"))
         line = QHBoxLayout()
-        line.addWidget(Field("Tier", self.license_tier))
-        line.addWidget(Field("Expires", self.license_expires))
+        line.addWidget(open_page)
         line.addStretch(1)
         card.add_layout(line)
-        card.add(hint("Shown in the sidebar; this build does not enforce licensing."))
+        card.add(hint("Activation, plans and seats all live on that screen."))
         return card
+
+    def _refresh_license(self) -> None:
+        from licensing import get_manager
+
+        manager = get_manager()
+        status = manager.status(refresh=True)
+        notes = "  ".join(f"•  {line}" for line in manager.restrictions())
+        self.license_summary.setText(f"{status.headline()}\n{notes}")
 
     # -- load / save -------------------------------------------------------
     def load(self) -> None:
@@ -172,8 +190,7 @@ class SettingsPage(Page):
         self.scan_delay.setValue(float(s.get("scan_delay", 1.0)))
         self.max_results.setValue(int(s.get("max_results", 50)))
         self.data_root.setText(str(s.get("data_root", "")))
-        self.license_tier.setCurrentText(str(s.get("license_tier", "Pro")))
-        self.license_expires.setText(str(s.get("license_expires", "")))
+        self._refresh_license()
         self.password.setText(self.state.password)
 
     def save(self) -> None:
@@ -189,8 +206,6 @@ class SettingsPage(Page):
             scan_delay=float(self.scan_delay.value()),
             max_results=int(self.max_results.value()),
             data_root=self.data_root.text().strip(),
-            license_tier=self.license_tier.currentText(),
-            license_expires=self.license_expires.text().strip(),
         )
         if path is None:
             self.state.log("settings", "Could not write the settings file.")

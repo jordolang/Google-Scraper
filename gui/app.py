@@ -5,17 +5,23 @@ from __future__ import annotations
 import importlib
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Dict
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon
-from PySide6.QtWidgets import QApplication, QHBoxLayout, QMainWindow, QStackedWidget, QWidget
+from PySide6.QtWidgets import (
+    QApplication, QHBoxLayout, QMainWindow, QMessageBox, QStackedWidget,
+    QVBoxLayout, QWidget,
+)
 
 from . import runtime, theme
+from .licensing_ui import LicenseBanner
 from .pages import Page
 from .pages.dashboard import DashboardPage
 from .pages.help_page import HelpPage
+from .pages.license_page import LicensePage
 from .pages.listings import ListingsPage
 from .pages.logs import LogsPage
 from .pages.outreach import OutreachPage
@@ -24,8 +30,14 @@ from .pages.tools import ToolsPage
 from .pages.website_scraper import WebsiteScraperPage
 from .state import AppState
 from .widgets.sidebar import Sidebar, brand_mark
+from .workers import JobRunner
 
 APP_TITLE = "Local Lead Scraper Pro"
+
+#: Set by the release job. Makes ``--selftest`` treat a build with no licence
+#: public key as a failure rather than a warning — a keyless release would put
+#: every customer in reader mode with no way out.
+REQUIRE_LICENCE_KEY_ENV = "LLSP_REQUIRE_LICENCE_KEY"
 
 
 def app_version() -> str:
@@ -58,8 +70,22 @@ class MainWindow(QMainWindow):
 
         self.sidebar = Sidebar()
         self.stack = QStackedWidget()
+
+        # The banner sits above the pages and inside the workspace, so it never
+        # covers the navigation rail and never pushes the window wider.
+        self.banner = LicenseBanner()
+        self.banner.activate_requested.connect(lambda: self.go_to("license"))
+        workspace = QWidget()
+        workspace.setObjectName("Workspace")
+        workspace.setAttribute(Qt.WA_StyledBackground, True)
+        workspace_layout = QVBoxLayout(workspace)
+        workspace_layout.setContentsMargins(0, 0, 0, 0)
+        workspace_layout.setSpacing(0)
+        workspace_layout.addWidget(self.banner)
+        workspace_layout.addWidget(self.stack, 1)
+
         layout.addWidget(self.sidebar)
-        layout.addWidget(self.stack, 1)
+        layout.addWidget(workspace, 1)
         self.setCentralWidget(central)
 
         # -- pages ---------------------------------------------------------
@@ -69,6 +95,7 @@ class MainWindow(QMainWindow):
             "scraper": WebsiteScraperPage(state),
             "outreach": OutreachPage(state),
             "settings": SettingsPage(state),
+            "license": LicensePage(state),
             "tools": ToolsPage(state),
             "logs": LogsPage(state),
             "help": HelpPage(state),
@@ -86,7 +113,39 @@ class MainWindow(QMainWindow):
                 page.navigate_requested.connect(self.go_to)
 
         self._apply_license()
+        self._start_licence_check()
         self.go_to("dashboard")
+
+    def _start_licence_check(self) -> None:
+        """Refresh the licence in the background, if it wants refreshing.
+
+        Off the UI thread and never fatal: an unreachable licence service must
+        cost nothing at start-up but a stale timestamp.
+        """
+        from licensing import get_manager
+
+        manager = get_manager()
+        status = manager.status()
+        if status.state == "clock_tampered":
+            QMessageBox.warning(
+                self, "Check the date and time",
+                "This computer's clock is set earlier than the last time the "
+                "app ran, so licences cannot be checked.\n\nFix the date and "
+                "time, then start the app again.")
+            return
+        if status.state not in ("stale", "grace_expired", "trial"):
+            return
+
+        def job(progress, on_event):
+            get_manager().refresh_if_due()
+            return None
+
+        self._licence_runner = JobRunner(self)
+        self._licence_runner.finished.connect(lambda _result: self._apply_license())
+        # A failure here is a licence that stays as it was: still valid, still
+        # working, just not re-checked. Nothing to tell the customer.
+        self._licence_runner.failed.connect(lambda _message: None)
+        self._licence_runner.start(job)
 
     # -- navigation --------------------------------------------------------
     def go_to(self, key: str) -> None:
@@ -107,10 +166,18 @@ class MainWindow(QMainWindow):
         self.sidebar.set_status(text, tone)
 
     def _apply_license(self) -> None:
-        self.sidebar.set_license(
-            str(self.state.settings.get("license_tier", "Pro")),
-            str(self.state.settings.get("license_expires", "—")),
-        )
+        """Put the real licence in the sidebar, and refresh the banner with it.
+
+        This used to read two strings out of settings.json, which meant the
+        rail cheerfully claimed "Pro" on an install that had never been
+        licensed. It now asks :mod:`licensing`.
+        """
+        from licensing import get_manager
+
+        status = get_manager().status(refresh=True)
+        expires = "Never" if status.perpetual else _short_date(status.expires_at)
+        self.sidebar.set_license(status.tier_name, expires)
+        self.banner.refresh()
 
     # -- lifecycle ---------------------------------------------------------
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt naming
@@ -121,6 +188,13 @@ class MainWindow(QMainWindow):
                 pass
         self.state.persist()
         super().closeEvent(event)
+
+
+def _short_date(stamp) -> str:
+    """A licence expiry as the sidebar prints it."""
+    if not stamp:
+        return "—"
+    return time.strftime("%d %b %Y", time.localtime(stamp))
 
 
 def build_app(argv=None) -> tuple[QApplication, MainWindow]:
@@ -176,6 +250,12 @@ RUNTIME_IMPORTS = (
     "industries",
     "pricing_store",
     "email_config",
+    "licensing",
+    "licensing.crypto",
+    "licensing._ed25519",
+    "licensing.manager",
+    "licensing.client",
+    "licensing.console",
     "tui.pitch_script",
     "salescall.objections",
     "shutil",
@@ -366,6 +446,25 @@ def selftest(argv=None) -> int:
     # driver) or, failing that, a bundled chromedriver for the machine's own
     # Chrome. With neither, a first run downloads — the thing shipping them is
     # meant to avoid.
+    # A build that cannot verify a licence sells nothing: every install would
+    # start in reader mode with no way out. Catch it here rather than in the
+    # first customer's hands.
+    #
+    # A missing key only *fails* when the caller says this build is meant to
+    # ship — the release job sets LLSP_REQUIRE_LICENCE_KEY. Ordinary PR builds
+    # have no key to embed and must still be buildable, so they get a warning
+    # on stderr instead of a red run.
+    from licensing import public_key as licence_key
+
+    if runtime.frozen() and not licence_key.configured():
+        complaint = ("this build has no licence public key: embed one with "
+                     "`python -m payments.cli set-public-key $LLSP_LICENSE_PUBKEY` "
+                     "and rebuild")
+        if os.environ.get(REQUIRE_LICENCE_KEY_ENV):
+            problems.append(complaint)
+        else:
+            print(f"WARN {complaint}", file=sys.stderr)
+
     if runtime.frozen():
         payload = runtime.embedded_payload()
         if payload is not None:
@@ -378,10 +477,14 @@ def selftest(argv=None) -> int:
     if problems:
         return 1
     driver = runtime.bundled_driver_version() or "none bundled"
+    from licensing import get_manager
+
+    licence = get_manager().status().state
     print(f"OK  {len(window.pages)} pages, {len(rendered)} templates, "
           f"{len(RUNTIME_IMPORTS)} runtime imports, demo pipeline ran, "
           f"chromedriver {driver}, browser: {browser}, "
-          f"data dir {runtime.working_dir()}")
+          f"licence key {'set' if licence_key.configured() else 'unset'} "
+          f"({licence}), data dir {runtime.working_dir()}")
     return 0
 
 
