@@ -11,6 +11,11 @@ The bump is driven by the commit subject: `feat:` is a feature, everything else
 (`fix:`, `docs:`, `chore:`, `refactor:`…) is a fix-level change. See
 [Versioning](README.md#️-versioning) for the full rules.
 
+## [1.7a] - 2026-08-23
+
+### Fixed
+- stop the licence-key guard blocking every release
+
 ## [1.7] - 2026-08-23
 
 ### Added
