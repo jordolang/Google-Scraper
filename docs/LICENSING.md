@@ -277,12 +277,24 @@ python -m payments.cli set-public-key "$LLSP_LICENSE_PUBKEY"
 pair, so every release would trust a different key and every licence already
 issued would stop verifying on upgrade. `keygen` is a once-ever command.
 
-`--selftest` checks the result. A build with no key is a warning on an ordinary
-PR — there is nothing to embed and the bundle must still be buildable — and a
-**failure** when a release is being published, which the workflows signal by
-setting `LLSP_REQUIRE_LICENCE_KEY=1` whenever a tag is in play. A keyless
-release would put every customer in reader mode with no way out, so it should
-never leave CI.
+`--selftest` checks the result. The rule is **"if we embedded a key, it had
+better work"**: the embed step sets `LLSP_REQUIRE_LICENCE_KEY=1` when, and only
+when, it actually wrote one, and the self-test then treats a bundle that cannot
+verify licences as a failure. With no variable set there is nothing to embed,
+the build is an unsigned development bundle, and the self-test says so on
+stderr without failing.
+
+That distinction was learned the hard way. Tying the requirement to "is this a
+release?" instead meant that before licensing went live — no keypair, no
+variable — every release cut its tag, failed all four builds at the self-test,
+and published nothing. Tag `v1.7` exists with no release attached for exactly
+this reason. A guard that blocks every release until someone sets a variable is
+not a safety feature.
+
+Note what is *not* passed to the self-test: `LLSP_LICENSE_PUBKEY` itself.
+`licensing.public_key` reads that variable at run time, so putting it in the
+self-test's environment would let a bundle whose embed silently failed pass on
+the runner's environment alone. Only the flag travels.
 
 To build a signed bundle locally:
 
@@ -292,6 +304,14 @@ pyinstaller --clean --noconfirm packaging/LocalLeadScraperPro.spec
 LLSP_REQUIRE_LICENCE_KEY=1 dist/LocalLeadScraperPro --selftest
 git checkout licensing/public_key.py     # do not commit the filled-in key
 ```
+
+### Re-cutting a release whose build failed
+
+The tag is created before the builds run, so a failed build leaves a tag with
+no release attached. Both build workflows take a tag as a `workflow_dispatch`
+input for this: run **Windows App** and **macOS App** from the Actions tab with
+`tag: v1.7`, and they build that commit and publish the release. Nothing needs
+re-tagging.
 
 ---
 

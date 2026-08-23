@@ -150,6 +150,17 @@ jobs:
         run: |
           if ($env:LLSP_LICENSE_PUBKEY) {
             python -m payments.cli set-public-key $env:LLSP_LICENSE_PUBKEY
+            # Having embedded a key, insist the bundle can actually verify
+            # licences. Recorded here rather than derived from the release tag:
+            # before licensing goes live there is no key to embed, and blocking
+            # every release until someone sets a variable is not a safety
+            # feature, it is an outage.
+            #
+            # The flag travels through GITHUB_ENV, never the key itself —
+            # licensing.public_key reads LLSP_LICENSE_PUBKEY from the
+            # environment too, so exposing it to the self-test would let a
+            # failed embed pass on the runner's environment alone.
+            "LLSP_REQUIRE_LICENCE_KEY=1" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           } else {
             Write-Host "::notice::LLSP_LICENSE_PUBKEY is not set; building an unsigned development bundle that cannot verify licences."
           }
@@ -178,10 +189,6 @@ jobs:
           # binary, so the call operator returns immediately without waiting and
           # leaves $LASTEXITCODE empty, which reads as a failure even when the
           # self-test passed.
-          # A release must not ship a bundle that cannot verify a licence, so
-          # the self-test treats a missing key as fatal when a tag is being
-          # published and as a warning otherwise.
-          if ($env:RELEASE_TAG) { $env:LLSP_REQUIRE_LICENCE_KEY = "1" }
           $startArgs = @{
             FilePath               = $exe
             # --with-browser unpacks the bundled Chromium and drives it, so a

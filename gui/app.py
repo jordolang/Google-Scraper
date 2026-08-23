@@ -403,6 +403,31 @@ def _check_bundled_browser(problems: list) -> str:
     return f"bundled browser at {Path(binary).name} drives"
 
 
+def licence_key_problem(frozen: bool, configured: bool) -> str:
+    """What to say about a build with no licence public key, if anything.
+
+    A packaged build that cannot verify a licence puts every customer in reader
+    mode with no way out, so it is worth catching before a customer does. It is
+    only ever a *problem* though — whether it fails the build is the caller's
+    call, via LLSP_REQUIRE_LICENCE_KEY.
+
+    The build workflows set that flag when, and only when, they actually
+    embedded a key. Deriving it from "is this a release?" instead was wrong in
+    a way that only showed up once: before licensing goes live there is no key
+    to embed, so every release failed the self-test and published nothing.
+    A guard that blocks all releases until someone sets a variable is not a
+    safety feature.
+
+    Source builds are never a problem: running from a checkout is how the app
+    is developed, and licensing.public_key falls back to the environment there.
+    """
+    if not frozen or configured:
+        return ""
+    return ("this build has no licence public key: embed one with "
+            "`python -m payments.cli set-public-key $LLSP_LICENSE_PUBKEY` "
+            "and rebuild")
+
+
 def selftest(argv=None) -> int:
     """Build the whole UI offscreen, visit every page, and report.
 
@@ -446,20 +471,10 @@ def selftest(argv=None) -> int:
     # driver) or, failing that, a bundled chromedriver for the machine's own
     # Chrome. With neither, a first run downloads — the thing shipping them is
     # meant to avoid.
-    # A build that cannot verify a licence sells nothing: every install would
-    # start in reader mode with no way out. Catch it here rather than in the
-    # first customer's hands.
-    #
-    # A missing key only *fails* when the caller says this build is meant to
-    # ship — the release job sets LLSP_REQUIRE_LICENCE_KEY. Ordinary PR builds
-    # have no key to embed and must still be buildable, so they get a warning
-    # on stderr instead of a red run.
     from licensing import public_key as licence_key
 
-    if runtime.frozen() and not licence_key.configured():
-        complaint = ("this build has no licence public key: embed one with "
-                     "`python -m payments.cli set-public-key $LLSP_LICENSE_PUBKEY` "
-                     "and rebuild")
+    complaint = licence_key_problem(runtime.frozen(), licence_key.configured())
+    if complaint:
         if os.environ.get(REQUIRE_LICENCE_KEY_ENV):
             problems.append(complaint)
         else:
