@@ -73,6 +73,22 @@ class StubScraper:
         return record
 
 
+class BrokenHarvestScraper(StubScraper):
+    """The feed refuses to give up its cards."""
+
+    def _harvest_cards(self):
+        raise RuntimeError("stale element reference")
+
+
+class EmptyHarvestScraper(StubScraper):
+    """The harvest works and finds nothing — what a card-markup change on
+    Google's side looks like from in here."""
+
+    def _harvest_cards(self):
+        self.harvested = True
+        return {}
+
+
 @pytest.fixture
 def pipeline(tmp_path):
     return LivePipeline(data_root=tmp_path)
@@ -131,3 +147,39 @@ class TestScrollBudget:
         pipeline = LivePipeline(data_root=tmp_path)
         pipeline.search("Roofing", "Zanesville, OH", max_scrolls=17)
         assert seen["max_scrolls"] == 17
+
+
+class TestHarvestFailuresAreVisible:
+    """A silent harvest failure is the original bug wearing a disguise.
+
+    The point of the fix is that the cards carry the phone number. If they
+    never arrive, the run still produces rows — just without phone numbers —
+    so the only thing standing between that and a silent regression is saying
+    so out loud.
+    """
+
+    def collect_progress(self, pipeline, scraper) -> str:
+        lines: List[str] = []
+        pipeline._scrape_with_progress(scraper, 8, lines.append, [])
+        return "\n".join(lines)
+
+    def test_a_raising_harvest_is_reported(self, pipeline):
+        output = self.collect_progress(pipeline, BrokenHarvestScraper())
+        assert "phone numbers may be missing" in output
+        assert "stale element reference" in output
+
+    def test_a_raising_harvest_does_not_stop_the_run(self, pipeline):
+        """Rows without phone numbers still beat no rows at all."""
+        collected: List = []
+        pipeline._scrape_with_progress(
+            BrokenHarvestScraper(), 8, lambda _line: None, collected)
+        assert len(collected) == 2
+
+    def test_an_empty_harvest_is_reported(self, pipeline):
+        """No exception, no cards — the failure mode that hides best."""
+        output = self.collect_progress(pipeline, EmptyHarvestScraper())
+        assert "produced no cards" in output
+
+    def test_a_healthy_harvest_says_nothing_alarming(self, pipeline):
+        output = self.collect_progress(pipeline, StubScraper())
+        assert "⚠" not in output

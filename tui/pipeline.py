@@ -374,10 +374,24 @@ class LivePipeline(Pipeline):
         # with no card at all, which is why the desktop app's Phone column came
         # up empty while `python google_maps_scraper.py` — which goes through
         # scrape_listings — filled it in.
+        # Both failure modes are announced. A harvest that raises is the
+        # obvious one; a harvest that quietly returns nothing is the dangerous
+        # one, because that is what a change to Google's card markup looks
+        # like — no exception, no cards, and every phone number silently gone
+        # again. Saying so on the progress log is the difference between
+        # noticing on the next run and noticing months later.
+        cards = {}
         try:
-            scraper._harvest_cards()
-        except Exception:  # pragma: no cover - a bare feed is still scrapable
-            pass
+            cards = scraper._harvest_cards() or {}
+        except Exception as exc:  # pragma: no cover - browser dependent
+            progress(f"⚠ Could not read the results feed's cards "
+                     f"({str(exc)[:80]}); phone numbers may be missing from "
+                     f"this run.")
+        else:
+            if not cards:
+                progress("⚠ The results feed produced no cards; phone numbers "
+                         "will be missing for any listing whose detail panel "
+                         "does not render.")
 
         urls = scraper._collect_all_business_urls()
         progress(f"Collected {len(urls)} listing links; opening each…")
@@ -387,7 +401,7 @@ class LivePipeline(Pipeline):
                 # hydrates, falls back to the card rather than dropping the
                 # business — so a slow listing costs a website, not a name and
                 # a phone number.
-                data = scraper._scrape_one(url, scraper._cards.get(url, {}))
+                data = scraper._scrape_one(url, cards.get(url, {}))
                 if data:
                     scraper.businesses.append(data)
                     business = Business.from_dict(data)
