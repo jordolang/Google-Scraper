@@ -256,16 +256,42 @@ is answerable from the database rather than from memory.
 
 ## 4. Building the app
 
-The release build must carry the public key:
+The frozen app verifies licences against the constant in
+`licensing/public_key.py`, not against an environment variable — a customer's
+machine has no environment to read. So the key has to be written into the source
+*before* PyInstaller runs.
 
-```bash
-python -m payments.cli keygen --write-public licensing/public_key.py   # once
-LocalLeadScraperPro.exe --selftest                                     # verifies it
+The repository ships that constant empty on purpose, and the build workflows
+fill it in:
+
+```yaml
+# Repository variable (Settings → Secrets and variables → Actions → Variables)
+LLSP_LICENSE_PUBKEY: <the base64url public key from keygen>
 ```
 
-`--selftest` fails a frozen build whose public key is missing — a build that
-cannot verify a licence puts every customer in reader mode with no way out, and
-that should never leave CI.
+```bash
+python -m payments.cli set-public-key "$LLSP_LICENSE_PUBKEY"
+```
+
+**Use `set-public-key`, never `keygen`, in a build.** `keygen` mints a *new*
+pair, so every release would trust a different key and every licence already
+issued would stop verifying on upgrade. `keygen` is a once-ever command.
+
+`--selftest` checks the result. A build with no key is a warning on an ordinary
+PR — there is nothing to embed and the bundle must still be buildable — and a
+**failure** when a release is being published, which the workflows signal by
+setting `LLSP_REQUIRE_LICENCE_KEY=1` whenever a tag is in play. A keyless
+release would put every customer in reader mode with no way out, so it should
+never leave CI.
+
+To build a signed bundle locally:
+
+```bash
+python -m payments.cli set-public-key "$LLSP_LICENSE_PUBKEY"
+pyinstaller --clean --noconfirm packaging/LocalLeadScraperPro.spec
+LLSP_REQUIRE_LICENCE_KEY=1 dist/LocalLeadScraperPro --selftest
+git checkout licensing/public_key.py     # do not commit the filled-in key
+```
 
 ---
 

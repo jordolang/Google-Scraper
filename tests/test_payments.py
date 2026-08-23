@@ -420,3 +420,75 @@ class TestHttp:
         assert status == 500
         assert "fire" not in body["error"]
         assert "internal error" in body["error"]
+
+
+# -- the operator CLI ----------------------------------------------------
+
+class TestCli:
+    def test_set_public_key_writes_the_constant(self, tmp_path):
+        """Release builds embed an existing key; keygen would mint a new one."""
+        from payments import cli
+
+        source = tmp_path / "public_key.py"
+        source.write_text('EMBEDDED_PUBLIC_KEY = ""\nOTHER = 1\n', encoding="utf-8")
+        _seed, public = crypto.generate_keypair()
+        encoded = crypto.b64encode(public)
+
+        assert cli.main(["set-public-key", encoded,
+                         "--write-public", str(source)]) == 0
+        written = source.read_text(encoding="utf-8")
+        assert f'EMBEDDED_PUBLIC_KEY = "{encoded}"' in written
+        assert "OTHER = 1" in written        # nothing else was touched
+
+    @pytest.mark.parametrize("bad", ["", "not base64 @@@", "AAAA"])
+    def test_set_public_key_refuses_a_key_that_would_verify_nothing(
+            self, tmp_path, bad):
+        from payments import cli
+
+        source = tmp_path / "public_key.py"
+        source.write_text('EMBEDDED_PUBLIC_KEY = ""\n', encoding="utf-8")
+        assert cli.main(["set-public-key", bad, "--write-public", str(source)]) == 2
+        assert source.read_text(encoding="utf-8") == 'EMBEDDED_PUBLIC_KEY = ""\n'
+
+    def test_set_public_key_refuses_a_small_order_key(self, tmp_path):
+        """A degenerate key verifies forged licences; it must never be embedded."""
+        from payments import cli
+
+        source = tmp_path / "public_key.py"
+        source.write_text('EMBEDDED_PUBLIC_KEY = ""\n', encoding="utf-8")
+        assert cli.main(["set-public-key", crypto.b64encode(b"\x00" * 32),
+                         "--write-public", str(source)]) == 2
+
+    def test_the_repository_ships_no_embedded_key(self):
+        """The committed constant stays empty: keys come from the build, and a
+        key in git is a key in every fork."""
+        import licensing.public_key as key_module
+
+        assert key_module.EMBEDDED_PUBLIC_KEY == ""
+
+    def test_grant_issues_a_licence_with_no_payment(self, tmp_path, capsys):
+        from payments import cli
+
+        database = str(tmp_path / "licences.db")
+        assert cli.main(["--database", database, "grant",
+                         "--sku", "pro-perpetual-once",
+                         "--email", "reviewer@example.com"]) == 0
+        key = capsys.readouterr().out.strip().splitlines()[-1]
+        assert keys.is_valid(key)
+        licence = Database(database).licence(key)
+        assert licence["model"] == plans.PERPETUAL
+        assert licence["email"] == "reviewer@example.com"
+
+    def test_revoke_ends_a_licence_and_frees_its_seats(self, tmp_path, capsys):
+        from payments import cli
+
+        database = str(tmp_path / "licences.db")
+        cli.main(["--database", database, "grant", "--sku",
+                  "pro-subscription-monthly", "--email", "x@example.com"])
+        key = capsys.readouterr().out.strip().splitlines()[-1]
+        store = Database(database)
+        store.activate(key, "m1")
+        assert cli.main(["--database", database, "revoke", key]) == 0
+        refreshed = Database(database)
+        assert refreshed.licence(key)["status"] == "refunded"
+        assert refreshed.seats_used(key) == 0

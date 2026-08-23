@@ -34,6 +34,11 @@ from .workers import JobRunner
 
 APP_TITLE = "Local Lead Scraper Pro"
 
+#: Set by the release job. Makes ``--selftest`` treat a build with no licence
+#: public key as a failure rather than a warning — a keyless release would put
+#: every customer in reader mode with no way out.
+REQUIRE_LICENCE_KEY_ENV = "LLSP_REQUIRE_LICENCE_KEY"
+
 
 def app_version() -> str:
     """The repo's VERSION file, when it travelled with the app."""
@@ -444,12 +449,21 @@ def selftest(argv=None) -> int:
     # A build that cannot verify a licence sells nothing: every install would
     # start in reader mode with no way out. Catch it here rather than in the
     # first customer's hands.
+    #
+    # A missing key only *fails* when the caller says this build is meant to
+    # ship — the release job sets LLSP_REQUIRE_LICENCE_KEY. Ordinary PR builds
+    # have no key to embed and must still be buildable, so they get a warning
+    # on stderr instead of a red run.
     from licensing import public_key as licence_key
 
     if runtime.frozen() and not licence_key.configured():
-        problems.append("this build has no licence public key: run "
-                        "`python -m payments.cli keygen --write-public "
-                        "licensing/public_key.py` and rebuild")
+        complaint = ("this build has no licence public key: embed one with "
+                     "`python -m payments.cli set-public-key $LLSP_LICENSE_PUBKEY` "
+                     "and rebuild")
+        if os.environ.get(REQUIRE_LICENCE_KEY_ENV):
+            problems.append(complaint)
+        else:
+            print(f"WARN {complaint}", file=sys.stderr)
 
     if runtime.frozen():
         payload = runtime.embedded_payload()

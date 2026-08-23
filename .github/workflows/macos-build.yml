@@ -106,6 +106,25 @@ jobs:
         # come from one snapshot revision, so they always match.
         run: python packaging/fetch_chromium.py --platform ${{ matrix.chromium }}
 
+      - name: Embed the licence public key
+        # The key the app verifies licences with. Public by nature — it is safe
+        # in a repository variable and safe inside the .exe — but it has to be
+        # written into the source before PyInstaller runs, because the frozen
+        # app reads the constant, not this runner's environment.
+        #
+        # Deliberately not `keygen`: that would mint a *new* pair on every
+        # build, so each release would trust a different key and every licence
+        # already issued would stop verifying.
+        env:
+          LLSP_LICENSE_PUBKEY: ${{ vars.LLSP_LICENSE_PUBKEY }}
+        run: |
+          if [ -n "$LLSP_LICENSE_PUBKEY" ]; then
+            python -m payments.cli set-public-key "$LLSP_LICENSE_PUBKEY"
+          else
+            echo "::notice::LLSP_LICENSE_PUBKEY is not set; building an unsigned"\
+                 "development bundle that cannot verify licences."
+          fi
+
       - name: Build the app bundle
         run: pyinstaller --clean --noconfirm packaging/LocalLeadScraperPro.spec
 
@@ -127,6 +146,10 @@ jobs:
             exit 1
           fi
           echo "built $BUNDLE ($(du -sh "dist/$BUNDLE" | cut -f1))"
+          # A release must not ship a bundle that cannot verify a licence, so
+          # the self-test treats a missing key as fatal when a tag is being
+          # published and as a warning otherwise.
+          if [ -n "$RELEASE_TAG" ]; then export LLSP_REQUIRE_LICENCE_KEY=1; fi
           # --with-browser unpacks the bundled Chromium and drives it, so a
           # build that cannot scrape fails here rather than on someone's Mac.
           "$binary" --selftest --with-browser

@@ -34,19 +34,47 @@ def _db(args) -> Database:
     return Database(args.database or Settings.from_env().database_path)
 
 
+def _write_public_key(path_text: str, public_b64: str) -> None:
+    """Rewrite ``EMBEDDED_PUBLIC_KEY`` in licensing/public_key.py, in place."""
+    path = Path(path_text)
+    marker = "EMBEDDED_PUBLIC_KEY = "
+    text = path.read_text(encoding="utf-8")
+    lines = [f'{marker}"{public_b64}"\n' if line.startswith(marker) else line
+             for line in text.splitlines(keepends=True)]
+    path.write_text("".join(lines), encoding="utf-8")
+    print(f"public key written into {path}")
+
+
+def cmd_set_public_key(args) -> int:
+    """Embed an *existing* public key in the app, for release builds.
+
+    ``keygen`` makes a new pair, which is exactly what a build must not do —
+    every release would trust a different key and every installed licence would
+    stop verifying. The release job keeps the public key in a repository
+    variable and writes it in with this.
+    """
+    text = args.key.strip()
+    try:
+        raw = crypto.b64decode(text)
+    except Exception as exc:  # noqa: BLE001 - any decode failure is the same failure
+        print(f"that is not a base64url key: {exc}", file=sys.stderr)
+        return 2
+    from licensing import public_key as key_module
+
+    if len(raw) != 32 or not key_module.usable(raw):
+        print("that is not a usable Ed25519 public key (32 bytes, full order)",
+              file=sys.stderr)
+        return 2
+    _write_public_key(args.write_public, crypto.b64encode(raw))
+    return 0
+
+
 def cmd_keygen(args) -> int:
     """Make the signing keypair. Run once, then guard the private half."""
     seed, public = crypto.generate_keypair()
     seed_b64, public_b64 = crypto.b64encode(seed), crypto.b64encode(public)
     if args.write_public:
-        path = Path(args.write_public)
-        text = path.read_text(encoding="utf-8")
-        marker = "EMBEDDED_PUBLIC_KEY = "
-        lines = []
-        for line in text.splitlines(keepends=True):
-            lines.append(f'{marker}"{public_b64}"\n' if line.startswith(marker) else line)
-        path.write_text("".join(lines), encoding="utf-8")
-        print(f"public key written into {path}")
+        _write_public_key(args.write_public, public_b64)
     print("\n=== KEEP THIS SECRET — it is the only thing that mints licences ===")
     print(f"export LLSP_SIGNING_KEY={seed_b64}")
     print("\n=== Safe to publish; ships inside the app ===")
@@ -159,6 +187,12 @@ def build_parser() -> argparse.ArgumentParser:
     keygen.add_argument("--write-public", default="",
                         help="path to licensing/public_key.py to update in place")
     keygen.set_defaults(func=cmd_keygen)
+
+    embed = sub.add_parser("set-public-key",
+                           help="embed an existing public key in the app (release builds)")
+    embed.add_argument("key", help="the base64url public key")
+    embed.add_argument("--write-public", default="licensing/public_key.py")
+    embed.set_defaults(func=cmd_set_public_key)
 
     grant = sub.add_parser("grant", help="issue a licence without a payment")
     grant.add_argument("--sku", required=True)
