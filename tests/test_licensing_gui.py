@@ -260,3 +260,61 @@ class TestConsole:
         from licensing import console
 
         assert console.run(["frobnicate"]) == 2
+
+
+class TestSelftestLicenceKeyGuard:
+    """The guard that decides whether a keyless bundle fails the build.
+
+    Its first version keyed off "is this a release?", which failed every
+    release before licensing went live — the tag was cut, all four builds
+    failed the self-test, and no assets were published. These pin the
+    behaviour that replaced it.
+    """
+
+    def test_a_source_build_is_never_a_problem(self):
+        from gui.app import licence_key_problem
+
+        assert licence_key_problem(frozen=False, configured=False) == ""
+        assert licence_key_problem(frozen=False, configured=True) == ""
+
+    def test_a_packaged_build_with_a_key_is_fine(self):
+        from gui.app import licence_key_problem
+
+        assert licence_key_problem(frozen=True, configured=True) == ""
+
+    def test_a_packaged_build_without_a_key_is_reported(self):
+        from gui.app import licence_key_problem
+
+        complaint = licence_key_problem(frozen=True, configured=False)
+        assert "no licence public key" in complaint
+        # Names the command that fixes it, not the one that would mint a new
+        # keypair and invalidate every licence already issued.
+        assert "set-public-key" in complaint
+        assert "keygen" not in complaint
+
+    def test_the_workflows_require_the_key_only_when_they_embed_one(self):
+        """The build workflows must not tie the requirement to a release tag.
+
+        Read from the workflow files themselves: this is the exact regression
+        that cut tag v1.7 with no release attached.
+        """
+        import re
+        from pathlib import Path
+
+        from gui.app import REQUIRE_LICENCE_KEY_ENV
+
+        root = Path(__file__).resolve().parent.parent
+        for name in ("windows-build.yml", "macos-build.yml"):
+            text = (root / ".github" / "workflows" / name).read_text(encoding="utf-8")
+            assert REQUIRE_LICENCE_KEY_ENV in text, name
+            for line in text.splitlines():
+                if REQUIRE_LICENCE_KEY_ENV in line and not line.strip().startswith("#"):
+                    assert "RELEASE_TAG" not in line, (
+                        f"{name}: the licence-key requirement is back on the "
+                        f"release tag, which blocks every release until "
+                        f"LLSP_LICENSE_PUBKEY is set")
+            # The key itself must never reach the self-test's environment:
+            # licensing.public_key reads it from there, so a failed embed
+            # would pass on the runner's environment alone.
+            check_step = text.split("--selftest")[0].rsplit("- name:", 1)[-1]
+            assert "LLSP_LICENSE_PUBKEY" not in check_step, name
