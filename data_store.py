@@ -43,11 +43,84 @@ LISTING_FIELDS: Sequence[str] = (
 STANDARD_EMAIL = "standard contact email"
 
 #: Columns written by :func:`export_contacts` (website contact scrape).
-CONTACT_FIELDS: Sequence[str] = (
-    "name", "email", "scraped_phone", "original_phone", "contact_name",
-    "address", "website", "category", "rating", "url",
-    "search_term", "search_location", "phone_source",
-)
+#:
+#: Every listing column is carried through verbatim, so the contacts file is a
+#: superset of the listings file rather than a lossy subset of it.  It used to
+#: drop ``reviews_count``, ``plus_code`` and ``hours``, which meant a mail
+#: merge fed from the contacts export simply had no column to map those to.
+#: ``original_phone`` trails the listing columns: it is the number Google Maps
+#: gave us, kept beside the one the website gave us.
+CONTACT_FIELDS: Sequence[str] = tuple(LISTING_FIELDS) + ("original_phone",)
+
+#: Human-readable header for every column, for the exports that are handed to
+#: another program (a mail-merge tool, a CRM import) rather than read back by
+#: this one.  ``--friendly-headers`` writes these instead of the snake_case
+#: field names; :func:`field_for_header` maps them back on the way in, so a
+#: file written either way still round-trips through the rest of the pipeline.
+FIELD_LABELS: Mapping[str, str] = {
+    "name": "Business Name",
+    "rating": "Rating",
+    "reviews_count": "Reviews Count",
+    "category": "Category",
+    "address": "Address",
+    "phone": "Phone",
+    "website": "Website",
+    "plus_code": "Plus Code",
+    "hours": "Hours",
+    "url": "URL",
+    "search_term": "Search Term",
+    "search_location": "Search Location",
+    "email": "Email",
+    "contact_name": "Contact Name",
+    "scraped_phone": "Scraped Phone",
+    "phone_source": "Phone Source",
+    "emailed": "Emailed",
+    "emailed_at": "Emailed At",
+    "emailed_to": "Emailed To",
+    "emailed_subject": "Emailed Subject",
+    "email_template": "Email Template",
+    "original_phone": "Original Phone",
+    "phone_e164": "Phone E164",
+}
+
+
+def _slug(value: str) -> str:
+    """``"Business Name"`` -> ``"business_name"`` — one comparable form."""
+    return re.sub(r"[^a-z0-9]+", "_", str(value or "").strip().lower()).strip("_")
+
+
+#: Every spelling of a column we accept on the way in -> its internal name.
+_HEADER_TO_FIELD: dict[str, str] = {}
+for _field, _label in FIELD_LABELS.items():
+    _HEADER_TO_FIELD[_field] = _field
+    _HEADER_TO_FIELD[_slug(_label)] = _field
+
+
+def header_label(field: str) -> str:
+    """The human-readable header for one column."""
+    return FIELD_LABELS.get(field, str(field or "").replace("_", " ").title())
+
+
+def field_for_header(header: str) -> str:
+    """The internal column name for a CSV header, however it was spelled.
+
+    ``"Business Name"``, ``"business name"`` and ``"name"`` all mean ``name``.
+    An unrecognised header keeps its own slug, so an extra column somebody
+    added by hand survives a read/write round trip.
+    """
+    return _HEADER_TO_FIELD.get(_slug(header), _slug(header))
+
+
+def normalise_row(row: Mapping[str, object]) -> dict[str, object]:
+    """Re-key one CSV row onto the internal column names."""
+    return {field_for_header(key): value for key, value in row.items() if key}
+
+
+def read_rows(path: Path | str) -> list[dict[str, object]]:
+    """Read a CSV written by this app, whichever header style it used."""
+    with open(path, "r", newline="", encoding="utf-8") as handle:
+        return [normalise_row(row) for row in csv.DictReader(handle)]
+
 
 _UNSPECIFIED = "unspecified"
 _REPO_ROOT = Path(__file__).resolve().parent
@@ -112,25 +185,33 @@ def write_rows(
     location: str = "",
     base: Path | None = None,
     when: datetime | None = None,
+    friendly_headers: bool = False,
 ) -> Path | None:
     """Write ``rows`` to a timestamped CSV in this search's folder.
 
     Returns the path written, or ``None`` when there is nothing to save.
     Rows are stamped with the search that produced them so a CSV read back
     later still knows where it came from.
+
+    ``friendly_headers`` swaps the snake_case field names for the labels in
+    :data:`FIELD_LABELS` (``name`` -> ``Business Name``) for files that go
+    straight into a mail merge.  Every column is still present, in the same
+    order, and :func:`read_rows` reads either style back.
     """
     rows = list(rows)
     if not rows:
         return None
 
+    fields = list(fields)
     path = _unique(search_dir(search_term, location, base), timestamped_name(prefix, when))
     with open(path, "w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(fields), extrasaction="ignore", restval="")
-        writer.writeheader()
+        writer = csv.DictWriter(handle, fieldnames=fields, extrasaction="ignore", restval="")
+        if friendly_headers:
+            writer.writerow({field: header_label(field) for field in fields})
+        else:
+            writer.writeheader()
         for row in rows:
-            record = dict(row)
-            record.setdefault("search_term", search_term)
-            record.setdefault("search_location", location)
+            record = normalise_row(row)
             if not record.get("search_term"):
                 record["search_term"] = search_term
             if not record.get("search_location"):
@@ -144,11 +225,13 @@ def export_listings(
     search_term: str,
     location: str = "",
     base: Path | None = None,
+    friendly_headers: bool = False,
 ) -> Path | None:
     """Save Google Maps search results."""
     return write_rows(
         rows, fields=LISTING_FIELDS, prefix="listings",
         search_term=search_term, location=location, base=base,
+        friendly_headers=friendly_headers,
     )
 
 
@@ -157,11 +240,13 @@ def export_contacts(
     search_term: str,
     location: str = "",
     base: Path | None = None,
+    friendly_headers: bool = False,
 ) -> Path | None:
     """Save the website contact-scrape enrichment for a search."""
     return write_rows(
         rows, fields=CONTACT_FIELDS, prefix="contacts",
         search_term=search_term, location=location, base=base,
+        friendly_headers=friendly_headers,
     )
 
 
@@ -184,7 +269,15 @@ def update_listings(path: Path | None, updates: Mapping[str, Mapping[str, object
         return None
 
     with open(path, "r", newline="", encoding="utf-8") as handle:
-        rows = list(csv.DictReader(handle))
+        reader = csv.DictReader(handle)
+        original_headers = list(reader.fieldnames or [])
+        rows = [normalise_row(row) for row in reader]
+    # Rewrite the file the way we found it: a listings CSV exported with
+    # friendly headers must not silently turn back into snake_case halfway
+    # through a run, or the mail merge loses its column mapping.
+    friendly = any(
+        header != field_for_header(header) for header in original_headers
+    )
 
     pending = {key: dict(value) for key, value in updates.items()}
     for row in rows:
@@ -200,7 +293,10 @@ def update_listings(path: Path | None, updates: Mapping[str, Mapping[str, object
         writer = csv.DictWriter(
             handle, fieldnames=list(LISTING_FIELDS), extrasaction="ignore", restval="",
         )
-        writer.writeheader()
+        if friendly:
+            writer.writerow({f: header_label(f) for f in LISTING_FIELDS})
+        else:
+            writer.writeheader()
         writer.writerows(rows)
     return path
 

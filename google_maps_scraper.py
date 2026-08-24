@@ -77,6 +77,134 @@ def parse_phone(raw: str) -> tuple:
     return "", ""
 
 
+#: Google's "Plus code" row is not rendered on every place page — a listing
+#: with a precise street address often shows the address alone.  The code is a
+#: pure function of the coordinates, though, and the place URL carries those
+#: (``!3d39.9403!4d-82.0132``), so the column can be filled either way.
+_LATLNG_RE = re.compile(r"!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)")
+_AT_LATLNG_RE = re.compile(r"@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)")
+
+#: Open Location Code constants (github.com/google/open-location-code).
+_OLC_ALPHABET = "23456789CFGHJMPQRVWX"
+_OLC_BASE = len(_OLC_ALPHABET)
+_OLC_SEPARATOR_POSITION = 8
+_OLC_PAIR_LENGTH = 10
+_OLC_MAX_DIGITS = 15
+_OLC_GRID_ROWS = 5
+_OLC_GRID_COLUMNS = 4
+#: 20**3 — the pair section resolves to 1/8000th of a degree.
+_OLC_PAIR_PRECISION = _OLC_BASE ** 3
+_OLC_LAT_PRECISION = _OLC_PAIR_PRECISION * _OLC_GRID_ROWS ** (
+    _OLC_MAX_DIGITS - _OLC_PAIR_LENGTH)
+_OLC_LNG_PRECISION = _OLC_PAIR_PRECISION * _OLC_GRID_COLUMNS ** (
+    _OLC_MAX_DIGITS - _OLC_PAIR_LENGTH)
+
+
+def coords_from_url(url: str) -> tuple:
+    """Return ``(lat, lng)`` for a Maps place URL, or ``(None, None)``.
+
+    ``!3d``/``!4d`` is the *place's* position and is preferred; the ``@``
+    segment is only the map viewport's centre, which drifts from the pin, so
+    it is the fallback.
+    """
+    text = str(url or "")
+    for pattern in (_LATLNG_RE, _AT_LATLNG_RE):
+        match = pattern.search(text)
+        if not match:
+            continue
+        try:
+            lat, lng = float(match.group(1)), float(match.group(2))
+        except (TypeError, ValueError):
+            continue
+        if -90 <= lat <= 90 and -180 <= lng <= 180:
+            return lat, lng
+    return None, None
+
+
+def _olc_latitude_precision(length: int) -> float:
+    """The height, in degrees, of the cell a code of ``length`` digits names."""
+    if length <= _OLC_PAIR_LENGTH:
+        return float(_OLC_BASE ** ((length // -2) + 2))
+    return (_OLC_BASE ** -3) / (_OLC_GRID_ROWS ** (length - _OLC_PAIR_LENGTH))
+
+
+def plus_code(latitude, longitude, length: int = 10) -> str:
+    """Encode a coordinate as an Open Location Code (a "plus code").
+
+    ``(39.9403, -82.0132)`` -> ``"86FXW2P3+9M"``-style global code.  Google
+    displays the shorter compound form ("W2P3+9M Zanesville, Ohio") next to a
+    locality; the global code this returns names the same square without
+    needing one, which is what a mail merge wants in a single column.
+    """
+    if latitude is None or longitude is None:
+        return ""
+    try:
+        latitude, longitude = float(latitude), float(longitude)
+    except (TypeError, ValueError):
+        return ""
+    length = max(2, min(int(length), _OLC_MAX_DIGITS))
+    if length < _OLC_PAIR_LENGTH and length % 2:
+        length += 1  # pair codes come two digits at a time
+
+    latitude = max(-90.0, min(90.0, latitude))
+    # Longitudes wrap; the encoding wants a half-open [-180, 180) range.
+    while longitude < -180:
+        longitude += 360
+    while longitude >= 180:
+        longitude -= 360
+    if latitude == 90:
+        # The north pole sits exactly on the top edge of the grid, which has
+        # no row above it to round into — step one cell south first.
+        latitude -= _olc_latitude_precision(length)
+
+    lat_value = int(round((latitude + 90) * _OLC_LAT_PRECISION, 6))
+    lng_value = int(round((longitude + 180) * _OLC_LNG_PRECISION, 6))
+
+    code = ""
+    if length > _OLC_PAIR_LENGTH:
+        for _ in range(_OLC_MAX_DIGITS - _OLC_PAIR_LENGTH):
+            index = ((lat_value % _OLC_GRID_ROWS) * _OLC_GRID_COLUMNS
+                     + (lng_value % _OLC_GRID_COLUMNS))
+            code = _OLC_ALPHABET[index] + code
+            lat_value //= _OLC_GRID_ROWS
+            lng_value //= _OLC_GRID_COLUMNS
+    else:
+        lat_value //= _OLC_GRID_ROWS ** (_OLC_MAX_DIGITS - _OLC_PAIR_LENGTH)
+        lng_value //= _OLC_GRID_COLUMNS ** (_OLC_MAX_DIGITS - _OLC_PAIR_LENGTH)
+
+    for _ in range(_OLC_PAIR_LENGTH // 2):
+        code = _OLC_ALPHABET[lng_value % _OLC_BASE] + code
+        code = _OLC_ALPHABET[lat_value % _OLC_BASE] + code
+        lat_value //= _OLC_BASE
+        lng_value //= _OLC_BASE
+
+    code = (code[:_OLC_SEPARATOR_POSITION] + "+"
+            + code[_OLC_SEPARATOR_POSITION:])
+    if length >= _OLC_SEPARATOR_POSITION:
+        return code[:length + 1]
+    return code[:length] + "0" * (_OLC_SEPARATOR_POSITION - length) + "+"
+
+
+def clean_url(value: str) -> str:
+    """Return a plain http(s) URL, unwrapping Google's redirect if present."""
+    text = clean_text(value).replace(" ", "")
+    if not text:
+        return ""
+    if "google.com/url?" in text:
+        from urllib.parse import parse_qs, urlparse
+
+        target = parse_qs(urlparse(text).query).get("q", [""])[0]
+        if target:
+            text = target
+    if text.startswith("//"):
+        text = "https:" + text
+    if not text.lower().startswith(("http://", "https://")):
+        if "." not in text:
+            return ""
+        text = "https://" + text
+    return text
+
+
 def _label_value(aria_label: str, label: str) -> str:
     """Pull the value out of an aria-label like ``"Phone: (740) 453-3649"``."""
     text = clean_text(aria_label)
@@ -293,9 +421,10 @@ class GoogleMapsScraper:
         return rating, reviews
 
     def _parse_card(self, card, link):
-        """Pull name / rating / reviews / category / phone out of one card."""
+        """Pull name / rating / reviews / category / website / phone off a card."""
         facts = {"name": "", "rating": "", "reviews_count": "",
-                 "category": "", "address": "", "phone": "", "phone_e164": ""}
+                 "category": "", "address": "", "phone": "", "phone_e164": "",
+                 "website": "", "url": ""}
 
         facts["name"] = clean_text(link.get_attribute("aria-label"))
         text = clean_text(card.text)
@@ -326,6 +455,25 @@ class GoogleMapsScraper:
             if len(parts) > 1 and not facts["address"]:
                 facts["address"] = parts[-1]
             break
+
+        # The card carries the website as its own action link, which is the
+        # only source left when the detail panel half-renders.
+        for selector in ('a[data-value="Website"]',
+                         'a[aria-label*="website" i]'):
+            try:
+                href = card.find_element(
+                    By.CSS_SELECTOR, selector).get_attribute("href")
+            except (NoSuchElementException, StaleElementReferenceException):
+                continue
+            website = clean_url(href or "")
+            if website and "google.com/maps" not in website:
+                facts["website"] = website
+                break
+
+        try:
+            facts["url"] = link.get_attribute("href") or ""
+        except StaleElementReferenceException:
+            pass
 
         return facts
 
@@ -396,8 +544,14 @@ class GoogleMapsScraper:
         # than dropping the business.
         if card:
             data = self._blank_record()
-            data.update({k: v for k, v in card.items() if v})
+            data.update({k: v for k, v in card.items()
+                         if v and k in data_store.LISTING_FIELDS})
+            data["phone_e164"] = card.get("phone_e164", "")
             data["url"] = url
+            # The coordinates live in the URL, so this column survives a panel
+            # that never rendered at all.
+            if not data["plus_code"]:
+                data["plus_code"] = plus_code(*coords_from_url(url))
             return data
         return None
 
@@ -625,6 +779,86 @@ class GoogleMapsScraper:
 
         return rating, reviews
 
+    def _extract_category(self):
+        """The listing's primary category ("Roofing contractor").
+
+        ``button.DkEaL`` is the current class name and the class names change,
+        so the jsaction hook and the category chip's own aria-label back it up
+        before we fall through to the feed card.
+        """
+        for selector in ('button.DkEaL',
+                         'button[jsaction*="category" i]',
+                         '[jsaction*="pane.wfvdle" i] button',
+                         'div.LBgpqf button'):
+            try:
+                text = clean_text(self.driver.find_element(
+                    By.CSS_SELECTOR, selector).text)
+            except (NoSuchElementException, StaleElementReferenceException):
+                continue
+            # The same container holds the price-level and "Open" chips.
+            if text and not text.lower().startswith(("open", "closed", "$")):
+                return text
+        return ""
+
+    def _extract_address(self):
+        """The full street address from the detail panel."""
+        value, _ = self._detail_row('button[data-item-id="address"]', 'Address')
+        if value:
+            return clean_text(value)
+        for selector in ('[data-tooltip="Copy address"]',
+                         'button[aria-label^="Address" i]'):
+            text, _ = self._detail_row(selector, 'Address')
+            if text:
+                return clean_text(text)
+        return ""
+
+    def _extract_website(self):
+        """The business's own site — never a Google URL.
+
+        Maps sometimes renders the site as the ``authority`` link and
+        sometimes only as an aria-labelled button showing the bare domain
+        ("acmeroofing.com"), which is why the value is normalised rather than
+        read straight out of ``href``.
+        """
+        for selector in ('a[data-item-id="authority"]',
+                         'a[data-item-id^="authority"]',
+                         'a[aria-label^="Website" i]',
+                         '[data-tooltip="Open website"]'):
+            try:
+                element = self.driver.find_element(By.CSS_SELECTOR, selector)
+            except (NoSuchElementException, StaleElementReferenceException):
+                continue
+            try:
+                candidates = (element.get_attribute("href"),
+                              _label_value(element.get_attribute("aria-label") or "",
+                                           "Website"),
+                              element.text)
+            except StaleElementReferenceException:
+                continue
+            for candidate in candidates:
+                website = clean_url(candidate or "")
+                if website and "google.com" not in website.split("/")[2]:
+                    return website
+        return ""
+
+    def _extract_plus_code(self, url=""):
+        """The listing's plus code, read from the panel or computed.
+
+        Maps hides the "Plus code" row on plenty of listings — usually the
+        ones with a precise street address.  A plus code is a pure function of
+        the coordinates, and the place URL carries those, so the column is
+        filled either way instead of being blank for half an export.
+        """
+        value, _ = self._detail_row('button[data-item-id="oloc"]', 'Plus code')
+        value = clean_text(value)
+        if value:
+            return value
+
+        latitude, longitude = coords_from_url(url or "")
+        if latitude is None:
+            latitude, longitude = coords_from_url(self.driver.current_url)
+        return plus_code(latitude, longitude)
+
     def _extract_business_details(self, card=None):
         """Extract details from a business listing page.
 
@@ -649,35 +883,26 @@ class GoogleMapsScraper:
             data['reviews_count'] = reviews_count
 
             # Category
-            try:
-                data['category'] = clean_text(self.driver.find_element(
-                    By.CSS_SELECTOR, 'button.DkEaL').text)
-            except NoSuchElementException:
-                data['category'] = ''
+            data['category'] = self._extract_category()
 
             # Address
-            data['address'], _ = self._detail_row(
-                'button[data-item-id="address"]', 'Address')
+            data['address'] = self._extract_address()
 
             # Phone — the column this scraper exists for.
             data['phone'], data['phone_e164'] = self._extract_phone()
 
             # Website
-            try:
-                data['website'] = self.driver.find_element(By.CSS_SELECTOR,
-                    'a[data-item-id="authority"]').get_attribute('href') or ''
-            except NoSuchElementException:
-                data['website'] = ''
-
-            # Plus Code
-            data['plus_code'], _ = self._detail_row(
-                'button[data-item-id="oloc"]', 'Plus code')
+            data['website'] = self._extract_website()
 
             # Hours
             data['hours'] = self._extract_hours()
 
             # URL
             data['url'] = self.driver.current_url
+
+            # Plus Code — last, because it falls back to the coordinates in
+            # the URL we have only just read.
+            data['plus_code'] = self._extract_plus_code(data['url'])
 
             # Anything the panel failed to render, take from the feed card.
             for key, value in card.items():
@@ -701,8 +926,10 @@ class GoogleMapsScraper:
         total = len(self.businesses)
         if not total:
             return {}
-        columns = ("name", "phone", "website", "address", "category",
-                   "rating", "reviews_count", "hours")
+        # Every column the Maps scrape itself is responsible for filling --
+        # the contact scan and the send fill the rest of the export later.
+        columns = ("name", "rating", "reviews_count", "category", "address",
+                   "phone", "website", "plus_code", "hours", "url")
         return {
             col: sum(1 for b in self.businesses if str(b.get(col, "")).strip())
             for col in columns
@@ -753,11 +980,15 @@ class GoogleMapsScraper:
             print(f"Could not write to the CRM: {exc}")
             return None
 
-    def save_to_csv(self, filename=None):
+    def save_to_csv(self, filename=None, friendly_headers=False):
         """Save scraped data to CSV file.
 
         With no explicit filename the rows land in
         data/<search term>/<location>/listings<date>-<time>.csv.
+
+        ``friendly_headers`` writes "Business Name", "Reviews Count", "Plus
+        Code"… instead of the snake_case field names, for handing the file
+        straight to a mail merge.  The columns and their order do not change.
         """
         if not self.businesses:
             print("No data to save")
@@ -765,17 +996,22 @@ class GoogleMapsScraper:
 
         if not filename:
             path = data_store.export_listings(
-                self.businesses, self.search_term, self.location
+                self.businesses, self.search_term, self.location,
+                friendly_headers=friendly_headers,
             )
         else:
             path = Path(filename)
             path.parent.mkdir(parents=True, exist_ok=True)
+            fields = list(data_store.LISTING_FIELDS)
             with open(path, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.DictWriter(
-                    f, fieldnames=list(data_store.LISTING_FIELDS),
-                    extrasaction='ignore', restval='',
+                    f, fieldnames=fields, extrasaction='ignore', restval='',
                 )
-                writer.writeheader()
+                if friendly_headers:
+                    writer.writerow(
+                        {c: data_store.header_label(c) for c in fields})
+                else:
+                    writer.writeheader()
                 writer.writerows(self.businesses)
 
         print(f"\n✓ Saved {len(self.businesses)} businesses to {path}")
@@ -822,6 +1058,10 @@ def main():
                        help='Run browser in visible mode (opposite of headless)')
     parser.add_argument('--max-scrolls', type=int, default=10,
                        help='Maximum number of scrolls to load results')
+    parser.add_argument('--friendly-headers', action='store_true',
+                       help='Write human-readable CSV headers ("Business '
+                            'Name", "Reviews Count", "Plus Code"...) for '
+                            'importing into a mail-merge tool')
     
     args = parser.parse_args()
     
@@ -836,7 +1076,7 @@ def main():
 
         if args.output in ['csv', 'both']:
             csv_file = f"{args.filename}.csv" if args.filename else None
-            scraper.save_to_csv(csv_file)
+            scraper.save_to_csv(csv_file, friendly_headers=args.friendly_headers)
         
         if args.output in ['json', 'both']:
             json_file = f"{args.filename}.json" if args.filename else None
