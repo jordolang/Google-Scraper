@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import urllib.parse
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -48,23 +49,110 @@ ARCHIVES = {
 }
 
 
+#: Where the bucket lists what it holds, as opposed to serving one file.
+LISTING = "https://www.googleapis.com/storage/v1/b/chromium-browser-snapshots/o"
+
+#: How far back to look for a complete snapshot, in commit positions. Builds
+#: land every ten to thirty commits, so this is a handful of candidates.
+LOOK_BACK = 400
+
+#: Stop after this many candidates: if the newest few are all incomplete the
+#: bucket is having a bad day, and forty HEAD requests will not fix it.
+MAX_CANDIDATES = 8
+
+
 def latest_revision(platform: str) -> str:
     with urllib.request.urlopen(f"{BASE}/{platform}/LAST_CHANGE", timeout=60) as response:
         return response.read().decode().strip()
 
 
+def published(platform: str, revision: str, name: str) -> bool:
+    """Whether this snapshot actually serves ``name`` yet."""
+    request = urllib.request.Request(
+        f"{BASE}/{platform}/{revision}/{name}", method="HEAD")
+    try:
+        urllib.request.urlopen(request, timeout=60)
+        return True
+    except Exception:  # noqa: BLE001 - a 404 is an answer, not a failure
+        return False
+
+
 def first_available(platform: str, revision: str, names) -> str:
-    """The driver archive this snapshot actually publishes."""
+    """The driver archive this snapshot publishes, or ``""`` if none does."""
     for name in names:
-        url = f"{BASE}/{platform}/{revision}/{name}"
-        try:
-            request = urllib.request.Request(url, method="HEAD")
-            urllib.request.urlopen(request, timeout=60)
+        if published(platform, revision, name):
             return name
-        except Exception:  # noqa: BLE001 - a 404 just means try the next name
-            continue
+    return ""
+
+
+def recent_revisions(platform: str, ceiling: int, look_back: int = LOOK_BACK) -> list:
+    """Snapshot revisions in ``[ceiling - look_back, ceiling]``, newest first.
+
+    A revision number is a Chromium commit position, and the bucket keeps only
+    the positions that were actually built — about one in twenty — so counting
+    the number down would spend most of its requests on directories that never
+    existed. Ask the bucket which ones are real instead.
+
+    Returns an empty list if the listing API cannot be reached; the caller
+    still has LAST_CHANGE to fall back on.
+    """
+    floor = max(0, ceiling - look_back)
+    query = urllib.parse.urlencode({
+        "delimiter": "/",
+        "prefix": f"{platform}/",
+        # Prefixes sort as text. Every revision in the window has the same
+        # digit count, so within it the text order is the numeric order —
+        # shorter, older numbers sort after and are dropped by the range test.
+        "startOffset": f"{platform}/{floor}",
+        "fields": "prefixes",
+        "maxResults": "1000",
+    })
+    try:
+        with urllib.request.urlopen(f"{LISTING}?{query}", timeout=60) as response:
+            prefixes = json.load(response).get("prefixes", [])
+    except Exception as exc:  # noqa: BLE001 - degrade to LAST_CHANGE alone
+        print(f"  could not list {platform} snapshots ({type(exc).__name__})")
+        return []
+
+    revisions = set()
+    for prefix in prefixes:
+        digits = prefix.strip("/").rsplit("/", 1)[-1]
+        if digits.isdigit() and floor <= int(digits) <= ceiling:
+            revisions.add(int(digits))
+    return sorted(revisions, reverse=True)
+
+
+def usable_revision(platform: str, browser_zip: str, driver_names) -> tuple:
+    """Return ``(revision, driver_zip)`` for the newest complete snapshot.
+
+    LAST_CHANGE advances as soon as a build starts publishing, so the newest
+    revision intermittently serves the browser but not yet the driver (or the
+    other way round). A build that picks that moment fails on an upload race
+    it had no part in — which platform loses is luck. So the newest revision
+    is a candidate rather than a verdict, and the search falls back to the
+    complete snapshot below it.
+    """
+    latest = latest_revision(platform)
+    if not latest.isdigit():
+        raise SystemExit(
+            f"{platform}/LAST_CHANGE is not a revision number: {latest!r}")
+
+    candidates = [int(latest)]
+    candidates += [r for r in recent_revisions(platform, int(latest) - 1)
+                   if r not in candidates]
+
+    for revision in candidates[:MAX_CANDIDATES]:
+        revision = str(revision)
+        driver_zip = first_available(platform, revision, driver_names)
+        if driver_zip and published(platform, revision, browser_zip):
+            if revision != latest:
+                print(f"  r{latest} is incomplete; falling back to r{revision}")
+            return revision, driver_zip
+
     raise SystemExit(
-        f"{platform} r{revision} publishes none of {', '.join(names)}")
+        f"no complete {platform} snapshot at or below r{latest}: none of the "
+        f"{len(candidates[:MAX_CANDIDATES])} newest publish {browser_zip} "
+        f"plus one of {', '.join(driver_names)}")
 
 
 def download(url: str, attempts: int = 4) -> bytes:
@@ -109,11 +197,21 @@ def main() -> int:
     parser.add_argument("--revision", default="", help="snapshot revision (default: latest)")
     args = parser.parse_args()
 
-    revision = args.revision or latest_revision(args.platform)
     browser_zip, driver_names = ARCHIVES[args.platform]
+    if args.revision:
+        # An explicitly named revision is a request, not a starting point:
+        # take it or say why it cannot be used.
+        revision = args.revision
+        driver_zip = first_available(args.platform, revision, driver_names)
+        if not driver_zip:
+            raise SystemExit(
+                f"{args.platform} r{revision} publishes none of "
+                f"{', '.join(driver_names)}")
+    else:
+        revision, driver_zip = usable_revision(
+            args.platform, browser_zip, driver_names)
     print(f"Chromium snapshot {args.platform} r{revision}")
 
-    driver_zip = first_available(args.platform, revision, driver_names)
     browser = download(f"{BASE}/{args.platform}/{revision}/{browser_zip}")
     driver = download(f"{BASE}/{args.platform}/{revision}/{driver_zip}")
 
