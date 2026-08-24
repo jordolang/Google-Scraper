@@ -11,6 +11,11 @@ The bump is driven by the commit subject: `feat:` is a feature, everything else
 (`fix:`, `docs:`, `chore:`, `refactor:`…) is a fix-level change. See
 [Versioning](README.md#️-versioning) for the full rules.
 
+## [1.8] - 2026-08-24
+
+### Added
+- every mapped field on every exported row
+
 ## [1.7c] - 2026-08-24
 
 ### Fixed
