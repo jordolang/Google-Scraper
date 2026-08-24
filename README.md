@@ -546,19 +546,70 @@ python google_maps_scraper.py "contractors" --location "Austin" --max-scrolls 20
 | `--filename` | No | Custom output filename (no extension) | Auto-generated |
 | `--visible` | No | Run browser in visible mode | False |
 | `--max-scrolls` | No | Maximum scrolls to load results | 10 |
+| `--friendly-headers` | No | Write `Business Name`-style CSV headers | False |
 
 #### Output Fields
 The scraper collects the following data for each business:
-- **name**: Business name
-- **rating**: Star rating (e.g., "4.5")
-- **reviews_count**: Number of reviews
-- **category**: Business category/type
-- **address**: Full address
-- **phone**: Phone number
-- **website**: Business website URL
-- **plus_code**: Google Plus Code location
-- **hours**: Operating hours
-- **url**: Google Maps URL
+
+| Column | Header with `--friendly-headers` | What it holds |
+|--------|----------------------------------|---------------|
+| `name` | Business Name | Business name |
+| `rating` | Rating | Star rating (e.g. "4.5") |
+| `reviews_count` | Reviews Count | Number of reviews |
+| `category` | Category | Business category/type |
+| `address` | Address | Full address |
+| `phone` | Phone | Phone number |
+| `website` | Website | Business website URL |
+| `plus_code` | Plus Code | Google Plus Code location |
+| `hours` | Hours | Operating hours |
+| `url` | URL | Google Maps URL |
+| `search_term` | Search Term | The search that found it |
+| `search_location` | Search Location | Where that search was run |
+
+Each of those is read from two places and merged: the search-result card in
+the left-hand feed, and the place detail page. The detail panel routinely
+hydrates only halfway, so the card is what keeps the columns full when it
+does — and every column has more than one selector behind it, because Maps'
+class names change without notice.
+
+**Plus Code** is the one column Google itself sometimes withholds: listings
+with a precise street address often render no "Plus code" row at all. A plus
+code is a pure function of the coordinates, and those are in the place URL, so
+the scraper computes the code when the row is missing. The computed value is
+the full global code (`8FVC2222+22`) rather than the shorter locality-relative
+form Maps displays (`2222+22 Zurich`); both name the same square, and the
+global one needs no locality column to be unambiguous.
+
+The run finishes with a per-column fill rate, so a Maps redesign that empties
+a column shows up in the same terminal that ran the scrape:
+
+```
+Field coverage across 42 businesses:
+  name             42/42  (100.0%)
+  rating           41/42  ( 97.6%)
+  reviews_count    41/42  ( 97.6%)
+  category         42/42  (100.0%)
+  address          42/42  (100.0%)
+  phone            38/42  ( 90.5%)
+  website          31/42  ( 73.8%)   ← low
+  plus_code        42/42  (100.0%)
+  hours            40/42  ( 95.2%)
+  url              42/42  (100.0%)
+```
+
+#### Mail-merge headers
+
+Add `--friendly-headers` to write `Business Name,Rating,Reviews Count,…`
+instead of the snake_case field names, for a tool that maps columns by their
+display name:
+
+```bash
+python google_maps_scraper.py "electricians" --location "Zanesville, OH" --friendly-headers
+```
+
+The columns and their order are identical either way, and every part of this
+app reads both spellings — so a friendly-header export still feeds the contact
+scan, the email generator and the call sheet.
 
 ### 2. Scraping Contact Details
 
@@ -800,13 +851,18 @@ row was emailed, so the call script will skip it from now on.
 
 **File**: `data/Electricians/Zanesville-OH/contacts71326-1109pm.csv`
 
-The contact scrape on its own (the same shape the email generator has always
-consumed), plus the search and phone-source provenance:
+Every listing column, carried through untouched, plus what the website scan
+found and the phone-source provenance. It is a superset of the listings CSV,
+not a subset of it — so a mail merge pointed at either file has the same
+fields to map:
 
 ```csv
-name,email,scraped_phone,original_phone,contact_name,address,website,category,rating,url,search_term,search_location,phone_source
-"Bright Spark Electric","info@brightspark.example","(614) 555-0142","(614) 555-0142","Dana Rivera","123 Main St, Zanesville, OH","https://brightspark.example","Electrician","4.8","https://maps.google.com/...","Electricians","Zanesville, OH",""
+name,rating,reviews_count,category,address,phone,website,plus_code,hours,url,search_term,search_location,email,contact_name,scraped_phone,phone_source,emailed,emailed_at,emailed_to,emailed_subject,email_template,original_phone
+"Bright Spark Electric","4.8","127","Electrician","123 Main St, Zanesville, OH","(614) 555-0142","https://brightspark.example","86FXW2P3+9M","Mon: 8 AM-5 PM; Tue: 8 AM-5 PM","https://maps.google.com/...","Electricians","Zanesville, OH","info@brightspark.example","Dana Rivera","(614) 555-0142","","","","","","","(614) 555-0142"
 ```
+
+`original_phone` is the number Google Maps gave us, kept beside the one the
+website gave us. `--friendly-headers` works here too.
 
 ### Email Generator Output
 **File**: `generated_emails/joes_pizza_email.html`

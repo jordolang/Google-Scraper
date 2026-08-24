@@ -178,13 +178,13 @@ class ContactScraper:
         ]
 
     def load_csv(self, filename):
-        """Load businesses from CSV file"""
-        businesses = []
-        with open(filename, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                businesses.append(row)
-        return businesses
+        """Load businesses from a listings CSV, whichever headers it carries.
+
+        Headers are normalised back to the internal column names, so a file
+        exported with the human-readable ones ("Business Name") still feeds
+        this scan.
+        """
+        return data_store.read_rows(filename)
 
     def find_contact_page(self, base_url):
         """Try to find contact page URL"""
@@ -390,23 +390,20 @@ class ContactScraper:
             # Get contact info from website
             contact_info = self.scrape_website(website)
             
-            # Combine with original data
-            result = {
-                'name': business.get('name', ''),
-                'original_phone': business.get('phone', ''),
-                'address': business.get('address', ''),
+            # Combine with original data. Every column the listing carried
+            # comes through untouched -- rating, reviews_count, plus_code,
+            # hours and the rest -- so the contacts export is a superset of
+            # the listings export and a mail merge fed from it has every
+            # field to map, not just the handful this scan adds.
+            result = {field: business.get(field, '')
+                      for field in data_store.LISTING_FIELDS}
+            result.update({
                 'website': website,
+                'original_phone': business.get('phone', ''),
                 'email': ', '.join(contact_info['emails']) if contact_info['emails'] else '',
                 'scraped_phone': ', '.join(contact_info['phones']) if contact_info['phones'] else '',
                 'contact_name': ', '.join(contact_info['contact_names']) if contact_info['contact_names'] else '',
-                'category': business.get('category', ''),
-                'rating': business.get('rating', ''),
-                'url': business.get('url', ''),
-                # Keep the seed search on every row so the export knows which
-                # data/<term>/<location>/ folder it belongs in.
-                'search_term': business.get('search_term', ''),
-                'search_location': business.get('search_location', ''),
-            }
+            })
             
             results.append(result)
             
@@ -425,11 +422,14 @@ class ContactScraper:
         
         return results
 
-    def save_to_csv(self, results, filename=None):
+    def save_to_csv(self, results, filename=None, friendly_headers=False):
         """Save results to CSV file.
 
         With no explicit filename the rows land beside the listings they came
         from, in data/<search term>/<location>/contacts<date>-<time>.csv.
+
+        ``friendly_headers`` writes the human-readable column names for a
+        mail-merge import; the columns themselves are unchanged.
         """
         if not results:
             print("No results to save")
@@ -437,16 +437,23 @@ class ContactScraper:
 
         if not filename:
             search_term, location = self._search_origin(results)
-            path = data_store.export_contacts(results, search_term, location)
+            path = data_store.export_contacts(
+                results, search_term, location,
+                friendly_headers=friendly_headers,
+            )
         else:
             path = Path(filename)
             path.parent.mkdir(parents=True, exist_ok=True)
+            fields = list(data_store.CONTACT_FIELDS)
             with open(path, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.DictWriter(
-                    f, fieldnames=list(data_store.CONTACT_FIELDS),
-                    extrasaction='ignore', restval='',
+                    f, fieldnames=fields, extrasaction='ignore', restval='',
                 )
-                writer.writeheader()
+                if friendly_headers:
+                    writer.writerow(
+                        {c: data_store.header_label(c) for c in fields})
+                else:
+                    writer.writeheader()
                 writer.writerows(results)
 
         # Count businesses with contact info
@@ -508,7 +515,11 @@ def main():
                        help='Run browser in headless mode')
     parser.add_argument('--visible', action='store_true',
                        help='Run browser in visible mode (opposite of headless)')
-    
+    parser.add_argument('--friendly-headers', action='store_true',
+                       help='Write human-readable CSV headers ("Business '
+                            'Name", "Reviews Count", "Plus Code"...) for '
+                            'importing into a mail-merge tool')
+
     args = parser.parse_args()
     
     # Handle headless vs visible mode
@@ -521,7 +532,8 @@ def main():
         
         if args.output in ['csv', 'both']:
             csv_file = f"{args.filename}.csv" if args.filename else None
-            scraper.save_to_csv(results, csv_file)
+            scraper.save_to_csv(results, csv_file,
+                                friendly_headers=args.friendly_headers)
         
         if args.output in ['json', 'both']:
             json_file = f"{args.filename}.json" if args.filename else None
