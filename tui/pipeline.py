@@ -329,7 +329,12 @@ class LivePipeline(Pipeline):
         businesses: List[Business] = []
         try:
             progress(f"Searching Google Maps for “{f'{field} {location}'.strip()}”…")
-            scraper.search(field, location)
+            # max_scrolls decides how much of the feed is loaded before
+            # anything is read, so it has to reach the search itself. Passing
+            # it only to _scrape_with_progress left the scraper on its own
+            # default of 10, and the "max results" setting silently did
+            # nothing to how far the feed was scrolled.
+            scraper.search(field, location, max_scrolls=max_scrolls)
             # Reuse the scraper's URL collection + detail extraction, but stream
             # progress so the UI does not appear frozen.
             progress("Collecting business listings…")
@@ -359,13 +364,44 @@ class LivePipeline(Pipeline):
             progress("Results feed did not load in time.")
             return
 
+        # Read the feed's cards before opening anything. Once a place page is
+        # open the feed is gone, and the card is the only dependable source of
+        # the phone number: the detail panel routinely hydrates only halfway
+        # when it is reached by direct URL navigation, and the phone row is
+        # among the first things missing.
+        #
+        # This loop used to skip the harvest and call _extract_business_details
+        # with no card at all, which is why the desktop app's Phone column came
+        # up empty while `python google_maps_scraper.py` — which goes through
+        # scrape_listings — filled it in.
+        # Both failure modes are announced. A harvest that raises is the
+        # obvious one; a harvest that quietly returns nothing is the dangerous
+        # one, because that is what a change to Google's card markup looks
+        # like — no exception, no cards, and every phone number silently gone
+        # again. Saying so on the progress log is the difference between
+        # noticing on the next run and noticing months later.
+        cards = {}
+        try:
+            cards = scraper._harvest_cards() or {}
+        except Exception as exc:  # pragma: no cover - browser dependent
+            progress(f"⚠ Could not read the results feed's cards "
+                     f"({str(exc)[:80]}); phone numbers may be missing from "
+                     f"this run.")
+        else:
+            if not cards:
+                progress("⚠ The results feed produced no cards; phone numbers "
+                         "will be missing for any listing whose detail panel "
+                         "does not render.")
+
         urls = scraper._collect_all_business_urls()
         progress(f"Collected {len(urls)} listing links; opening each…")
         for idx, url in enumerate(urls, 1):
             try:
-                scraper.driver.get(url)
-                time.sleep(2)
-                data = scraper._extract_business_details()
+                # _scrape_one retries a half-rendered panel and, if it never
+                # hydrates, falls back to the card rather than dropping the
+                # business — so a slow listing costs a website, not a name and
+                # a phone number.
+                data = scraper._scrape_one(url, cards.get(url, {}))
                 if data:
                     scraper.businesses.append(data)
                     business = Business.from_dict(data)
@@ -373,7 +409,8 @@ class LivePipeline(Pipeline):
                     # Hand it over before the next progress line, which is
                     # where a stop request surfaces.
                     on_business(business)
-                    progress(f"[{idx}/{len(urls)}] {data.get('name', 'business')}")
+                    progress(f"[{idx}/{len(urls)}] {data.get('name', 'business')}"
+                             f" — {data.get('phone') or 'no phone'}")
             except Exception as exc:  # pragma: no cover - network dependent
                 progress(f"[{idx}/{len(urls)}] error: {str(exc)[:80]}")
 
