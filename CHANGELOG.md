@@ -11,6 +11,12 @@ The bump is driven by the commit subject: `feat:` is a feature, everything else
 (`fix:`, `docs:`, `chore:`, `refactor:`…) is a fix-level change. See
 [Versioning](README.md#️-versioning) for the full rules.
 
+## [1.7c] - 2026-08-24
+
+### Fixed
+- say so when the listing cards cannot be read
+- keep the phone number the search feed already gave us
+
 ## [1.7b] - 2026-08-23
 
 ### Fixed
