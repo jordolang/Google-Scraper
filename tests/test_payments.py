@@ -492,3 +492,147 @@ class TestCli:
         refreshed = Database(database)
         assert refreshed.licence(key)["status"] == "refunded"
         assert refreshed.seats_used(key) == 0
+
+
+# -- concurrency ---------------------------------------------------------
+
+class TestConcurrentWrites:
+    """Two requests writing at once must not share a transaction.
+
+    The licence service runs under a threaded WSGI worker, so a Stripe webhook
+    and a customer activation genuinely can land in Database.write() at the
+    same moment. sqlite3 serialises individual statements but not
+    transactions: without a lock both threads sit inside one, and whichever
+    leaves first decides the fate of the other's work.
+    """
+
+    def test_a_failed_request_cannot_roll_back_a_successful_one(self, tmp_path):
+        """The damaging case: money taken, licence row silently discarded."""
+        import threading
+
+        database = Database(str(tmp_path / "concurrent.db"))
+        started = threading.Event()
+
+        def succeeds():
+            with database.write() as connection:
+                connection.execute(
+                    "INSERT INTO events (at, licence_key, kind) VALUES (?,?,?)",
+                    (1.0, "PAID", "checkout.session.completed"))
+                started.set()
+                time.sleep(0.3)          # still open when the other arrives
+
+        def fails():
+            started.wait(timeout=2)
+            time.sleep(0.05)
+            try:
+                with database.write() as connection:
+                    connection.execute(
+                        "INSERT INTO events (at, licence_key, kind) VALUES (?,?,?)",
+                        (2.0, "JUNK", "boom"))
+                    raise RuntimeError("this request failed")
+            except RuntimeError:
+                pass
+
+        winner = threading.Thread(target=succeeds)
+        loser = threading.Thread(target=fails)
+        winner.start(); loser.start()
+        winner.join(timeout=5); loser.join(timeout=5)
+
+        surviving = [row["licence_key"]
+                     for row in database.query("SELECT licence_key FROM events")]
+        assert surviving == ["PAID"], (
+            f"expected only the successful write to survive, got {surviving}")
+
+    def test_parallel_writers_all_land(self, tmp_path):
+        import threading
+
+        database = Database(str(tmp_path / "parallel.db"))
+        errors = []
+
+        def write(index):
+            try:
+                with database.write() as connection:
+                    connection.execute(
+                        "INSERT INTO events (at, licence_key, kind) VALUES (?,?,?)",
+                        (float(index), f"K{index}", "probe"))
+                    time.sleep(0.02)
+            except Exception as exc:  # noqa: BLE001 - the thing being tested
+                errors.append(f"{type(exc).__name__}: {exc}")
+
+        threads = [threading.Thread(target=write, args=(i,)) for i in range(12)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+
+        assert not errors, errors
+        assert database.query("SELECT COUNT(*) AS c FROM events")[0]["c"] == 12
+        assert not database._connection.in_transaction
+
+    def test_concurrent_activations_each_get_their_own_seat(self, tmp_path):
+        """Seat numbers come from a read-then-write; they must not collide."""
+        import threading
+
+        database = Database(str(tmp_path / "seats.db"))
+        database.create_licence(key="LLSP-SEATS", tier=plans.AGENCY,
+                                model=plans.SUBSCRIPTION, max_machines=10)
+        barrier = threading.Barrier(6)
+
+        def activate(index):
+            barrier.wait(timeout=5)
+            database.activate("LLSP-SEATS", f"machine-{index}", f"box {index}")
+
+        threads = [threading.Thread(target=activate, args=(i,)) for i in range(6)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+
+        seats = sorted(row["seat"] for row in database.activations("LLSP-SEATS"))
+        assert len(seats) == 6
+        assert len(set(seats)) == 6, f"seat numbers collided: {seats}"
+
+    def test_a_full_licence_cannot_be_overrun_by_a_race(self, tmp_path):
+        """Eight machines rushing a three-seat licence must yield three.
+
+        The check and the insert used to be separate calls, so simultaneous
+        activations all read the old count and all got in — a customer paying
+        for three seats and receiving as many as they could open at once.
+        """
+        import threading
+
+        database = Database(str(tmp_path / "overrun.db"))
+        database.create_licence(key="LLSP-FULL", tier=plans.PRO,
+                                model=plans.SUBSCRIPTION, max_machines=3)
+        barrier = threading.Barrier(8)
+        admitted = []
+        lock = threading.Lock()
+
+        def rush(index):
+            barrier.wait(timeout=5)
+            record = database.activate("LLSP-FULL", f"machine-{index}",
+                                       max_machines=3)
+            if record is not None:
+                with lock:
+                    admitted.append(index)
+
+        threads = [threading.Thread(target=rush, args=(i,)) for i in range(8)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+
+        assert len(admitted) == 3, f"{len(admitted)} machines admitted, expected 3"
+        assert database.seats_used("LLSP-FULL") == 3
+
+    def test_reactivating_under_the_limit_is_not_refused(self, tmp_path):
+        """A machine already holding a seat keeps it even on a full licence."""
+        database = Database(str(tmp_path / "reactivate.db"))
+        database.create_licence(key="LLSP-RE", tier=plans.SOLO,
+                                model=plans.SUBSCRIPTION, max_machines=2)
+        first = database.activate("LLSP-RE", "m1", max_machines=2)
+        database.activate("LLSP-RE", "m2", max_machines=2)
+        again = database.activate("LLSP-RE", "m1", max_machines=2)
+        assert again is not None
+        assert again["seat"] == first["seat"]
+        assert database.activate("LLSP-RE", "m3", max_machines=2) is None

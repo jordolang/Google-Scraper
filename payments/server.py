@@ -124,15 +124,17 @@ class LicenseService:
         key = keys.parse(key_text)  # InvalidKey -> 400, below
         licence = self._licence_or_404(key)
         self._usable(licence)
-        existing = self.db.activation(key, machine_id)
-        if existing is None:
+        # The seat limit is enforced inside db.activate(), not checked here
+        # first: counting seats and then inserting is two steps, and two
+        # activations arriving together would both see room on a full licence.
+        record = self.db.activate(key, machine_id, str(body.get("label") or ""),
+                                  max_machines=int(licence.get("max_machines") or 1))
+        if record is None:
+            machines = ", ".join(row["label"] or row["machine_id"][:8]
+                                 for row in self.db.activations(key))
             used = self.db.seats_used(key)
-            if used >= int(licence.get("max_machines") or 1):
-                machines = ", ".join(row["label"] or row["machine_id"][:8]
-                                     for row in self.db.activations(key))
-                raise HttpError(409, f"All {used} seats on this licence are in use "
-                                     f"({machines}). Deactivate one first.")
-        record = self.db.activate(key, machine_id, str(body.get("label") or ""))
+            raise HttpError(409, f"All {used} seats on this licence are in use "
+                                 f"({machines}). Deactivate one first.")
         token = issuer.issue(licence, machine_id, seat=int(record.get("seat") or 1),
                              now=self._now())
         return {"token": self._sign(token), "seat": record.get("seat"),
