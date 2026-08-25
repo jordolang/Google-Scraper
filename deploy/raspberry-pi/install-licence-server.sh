@@ -93,6 +93,10 @@ done
 case "${PORT}" in
     ''|*[!0-9]*) die "--port must be a number, got '${PORT}'" ;;
 esac
+# Range as well as shape: 0 and 70000 are numbers, and both would be baked into
+# the unit, the health check and the tunnel command before anything complained.
+[ "${PORT}" -ge 1 ] && [ "${PORT}" -le 65535 ] \
+    || die "--port must be between 1 and 65535, got '${PORT}'"
 
 [ "$(id -u)" -eq 0 ] || die "run this with sudo: sudo $0 $*"
 
@@ -105,6 +109,9 @@ if [ "${MODE}" = "uninstall" ]; then
           "/etc/systemd/system/${SERVICE_NAME}-backup.service" \
           "/etc/systemd/system/${SERVICE_NAME}-backup.timer"
     systemctl daemon-reload
+    # The wrappers point into the venv that is about to go; leaving them
+    # behind leaves commands that look installed and always fail.
+    rm -f /usr/local/bin/llsp-licence /usr/local/bin/llsp-licence-backup
     rm -rf "${APP_DIR}"
     say "Done."
     note "Kept ${DATA_DIR} (database + backups) and ${CONF_DIR} (signing key)."
@@ -128,22 +135,48 @@ note "architecture: ${ARCH}"
 note "target:       ${APP_DIR}"
 note "listening on: 127.0.0.1:${PORT}"
 
+# checkout_ref resolves a branch or a tag. `git fetch origin <tag>` puts the
+# tag in FETCH_HEAD but creates no refs/remotes/origin/<tag>, so checking out
+# "origin/${REPO_REF}" works for branches and fails for every tag — which
+# --help explicitly offers.
+checkout_ref() {
+    sudo -u "${SERVICE_USER}" git -C "${APP_DIR}" fetch --quiet --tags origin "${REPO_REF}"
+    if sudo -u "${SERVICE_USER}" git -C "${APP_DIR}" \
+            rev-parse --verify --quiet "refs/remotes/origin/${REPO_REF}" >/dev/null; then
+        sudo -u "${SERVICE_USER}" git -C "${APP_DIR}" \
+            checkout --quiet -B "${REPO_REF}" "origin/${REPO_REF}"
+    else
+        # A tag, or anything else fetchable: detach onto exactly what arrived.
+        sudo -u "${SERVICE_USER}" git -C "${APP_DIR}" checkout --quiet --detach FETCH_HEAD
+    fi
+}
+
 # -- update mode ----------------------------------------------------------
 if [ "${MODE}" = "update" ]; then
     [ -d "${APP_DIR}/.git" ] || die "no checkout at ${APP_DIR}; run without --update first"
     say "Updating the code"
-    sudo -u "${SERVICE_USER}" git -C "${APP_DIR}" fetch --quiet origin "${REPO_REF}"
-    sudo -u "${SERVICE_USER}" git -C "${APP_DIR}" checkout --quiet -B "${REPO_REF}" "origin/${REPO_REF}"
+    checkout_ref
     note "now at $(sudo -u "${SERVICE_USER}" git -C "${APP_DIR}" rev-parse --short HEAD)"
     say "Reinstalling dependencies"
     "${VENV_DIR}/bin/pip" install --quiet --upgrade pip
     "${VENV_DIR}/bin/pip" install --quiet gunicorn || die "could not install gunicorn"
-    "${VENV_DIR}/bin/pip" install --quiet cryptography 2>/dev/null \
+    "${VENV_DIR}/bin/pip" install --quiet --only-binary=:all: cryptography 2>/dev/null \
         || note "cryptography unavailable for ${ARCH}; the vendored signer will be used"
-    systemctl restart "${SERVICE_NAME}.service"
-    say "Restarted. Recent log:"
-    sleep 2
-    journalctl -u "${SERVICE_NAME}.service" -n 15 --no-pager || true
+    # restart would *start* a unit the install deliberately left stopped for
+    # want of Stripe credentials. gunicorn would bind happily — the config is
+    # not validated until the first request — leaving a service that is up and
+    # answering 500s, and a later `enable --now` that does nothing because the
+    # unit is already active, so it keeps the stale environment.
+    if systemctl is-active --quiet "${SERVICE_NAME}.service"; then
+        systemctl restart "${SERVICE_NAME}.service"
+        say "Restarted. Recent log:"
+        sleep 2
+        journalctl -u "${SERVICE_NAME}.service" -n 15 --no-pager || true
+    else
+        say "Code updated. The service was not running, so it was left alone."
+        note "finish the configuration in ${ENV_FILE}, then:"
+        note "  sudo systemctl enable --now ${SERVICE_NAME}"
+    fi
     trap - EXIT ERR
     exit 0
 fi
@@ -174,8 +207,7 @@ install -d -o root -g "${SERVICE_USER}" -m 0750 "${CONF_DIR}"
 # -- code -----------------------------------------------------------------
 if [ -d "${APP_DIR}/.git" ]; then
     say "Updating the existing checkout"
-    sudo -u "${SERVICE_USER}" git -C "${APP_DIR}" fetch --quiet origin "${REPO_REF}"
-    sudo -u "${SERVICE_USER}" git -C "${APP_DIR}" checkout --quiet -B "${REPO_REF}" "origin/${REPO_REF}"
+    checkout_ref
 else
     say "Cloning ${REPO_URL} (${REPO_REF})"
     install -d -o "${SERVICE_USER}" -g "${SERVICE_USER}" -m 0755 "${APP_DIR}"
@@ -191,8 +223,13 @@ note "at $(sudo -u "${SERVICE_USER}" git -C "${APP_DIR}" rev-parse --short HEAD)
 say "Building the virtualenv"
 # Debian marks the system Python as externally managed (PEP 668), so a venv is
 # not optional here — pip would refuse to install into the system site-packages.
+# Root-owned on purpose, and never chowned to the service user. --update runs
+# ${VENV_DIR}/bin/pip as root; if the llsp account could write to that path,
+# anything that compromised the service could leave a pip behind and wait for
+# the next administrative update to run it as root. The service only ever
+# reads and executes from here.
 if [ ! -x "${VENV_DIR}/bin/python" ]; then
-    sudo -u "${SERVICE_USER}" python3 -m venv "${VENV_DIR}"
+    python3 -m venv "${VENV_DIR}"
 fi
 "${VENV_DIR}/bin/pip" install --quiet --upgrade pip
 "${VENV_DIR}/bin/pip" install --quiet gunicorn || die "could not install gunicorn"
@@ -203,14 +240,18 @@ note "gunicorn installed"
 # not worth an hour of compiling: licensing/crypto.py falls back to the
 # vendored RFC 8032 implementation, which signs in about 10ms — far more than
 # this service will ever need.
-if "${VENV_DIR}/bin/pip" install --quiet cryptography 2>/dev/null; then
+# --only-binary is what makes the sentence above true. Without it pip is free
+# to fall back to an sdist, and on armv7l that means downloading a Rust
+# toolchain and compiling for the better part of an hour before failing.
+if "${VENV_DIR}/bin/pip" install --quiet --only-binary=:all: cryptography 2>/dev/null; then
     note "cryptography installed (fast signer)"
 else
     warn "no cryptography wheel for ${ARCH}; using the vendored pure-Python signer"
     note "that is supported and correct, just slower. Nothing else changes."
 fi
 
-chown -R "${SERVICE_USER}:${SERVICE_USER}" "${VENV_DIR}"
+chown -R root:root "${VENV_DIR}"
+chmod -R a+rX "${VENV_DIR}"
 
 # -- signing key ----------------------------------------------------------
 PUBLIC_KEY=""
@@ -271,6 +312,19 @@ if [ ! -f "${ENV_FILE}" ]; then
         printf 'LLSP_CHECKOUT_CANCEL_URL=\n'
         printf 'LLSP_SUPPORT_EMAIL=\n'
     } > "${ENV_FILE}"
+elif ! grep -q '^LLSP_SIGNING_KEY=.\+' "${ENV_FILE}"; then
+    # The file survived but its key did not — a hand-edit, a restore from a
+    # partial backup. The key was generated above and lives only in this
+    # shell; without this it is lost when the script exits, the service cannot
+    # start, and the next run quietly mints a different one.
+    say "Restoring the signing key into ${ENV_FILE}"
+    if grep -q '^LLSP_SIGNING_KEY=' "${ENV_FILE}"; then
+        sed -i "s|^LLSP_SIGNING_KEY=.*|LLSP_SIGNING_KEY=${SEED}|" "${ENV_FILE}"
+    else
+        printf 'LLSP_SIGNING_KEY=%s\n' "${SEED}" >> "${ENV_FILE}"
+    fi
+    grep -q "^LLSP_SIGNING_KEY=${SEED}$" "${ENV_FILE}" \
+        || die "could not write the signing key into ${ENV_FILE}"
 else
     say "Keeping the existing ${ENV_FILE}"
 fi
@@ -438,8 +492,15 @@ MISSING=""
 for key in LLSP_STRIPE_SECRET_KEY LLSP_STRIPE_WEBHOOK_SECRET; do
     grep -q "^${key}=.\+" "${ENV_FILE}" || MISSING="${MISSING} ${key}"
 done
-grep -q '^LLSP_STRIPE_PRICE_[A-Z_]*=.\+' "${ENV_FILE}" \
-    || MISSING="${MISSING} LLSP_STRIPE_PRICE_*"
+# Each SKU separately. Checking that *some* price is filled in would start the
+# service on a half-configured catalogue, and every checkout for a missing SKU
+# would then 500 while the installer had reported everything ready.
+while IFS= read -r price_key; do
+    [ -n "${price_key}" ] || continue
+    grep -q "^${price_key}=.\+" "${ENV_FILE}" || MISSING="${MISSING} ${price_key}"
+done <<PRICES
+$(grep -o '^LLSP_STRIPE_PRICE_[A-Z_]*' "${ENV_FILE}")
+PRICES
 
 printf '\n'
 say "Installed."
@@ -478,9 +539,17 @@ printf 'behind a home router is not reachable by default. A Cloudflare tunnel\n'
 printf 'avoids port forwarding and gives you TLS:\n\n'
 printf '    cloudflared tunnel login\n'
 printf '    cloudflared tunnel create llsp-licence\n'
-printf '    cloudflared tunnel route dns llsp-licence licence.yourdomain.com\n'
-printf '    cloudflared tunnel --url http://127.0.0.1:%s run llsp-licence\n' "${PORT}"
-printf '    sudo cloudflared service install   # keep it running across reboots\n\n'
+printf '    cloudflared tunnel route dns llsp-licence licence.yourdomain.com\n\n'
+printf 'then write /etc/cloudflared/config.yml — service install reads that file\n'
+printf 'and nothing else, and a tunnel with no ingress rule routes nothing:\n\n'
+printf '    tunnel: llsp-licence\n'
+printf '    credentials-file: /etc/cloudflared/<UUID>.json\n'
+printf '    ingress:\n'
+printf '      - hostname: licence.yourdomain.com\n'
+printf '        service: http://127.0.0.1:%s\n' "${PORT}"
+printf '      - service: http_status:404\n\n'
+printf '    sudo cloudflared service install   # keep it running across reboots\n'
+printf '    curl https://licence.yourdomain.com/healthz   # prove it routes\n\n'
 printf 'Then set LLSP_PUBLIC_URL to that hostname, point a Stripe webhook at\n'
 printf 'https://licence.yourdomain.com/v1/stripe/webhook, and subscribe it to:\n'
 printf '    checkout.session.completed   invoice.paid   invoice.payment_failed\n'

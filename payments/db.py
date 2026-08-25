@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -88,14 +89,33 @@ class Database:
         self._connection.execute("PRAGMA foreign_keys=ON")
         self._connection.executescript(SCHEMA)
         self._connection.commit()
+        # See write(): one writer at a time across the server's threads.
+        # Re-entrant so that a future caller nesting two write() blocks on one
+        # thread deadlocks nobody; today nothing nests.
+        self._write_lock = threading.RLock()
 
     def close(self) -> None:
         self._connection.close()
 
     @contextmanager
     def write(self) -> Iterator[sqlite3.Connection]:
-        with self._connection:  # commits on success, rolls back on exception
-            yield self._connection
+        """One write transaction, exclusive across threads.
+
+        The lock is not belt-and-braces, it is load-bearing. Python's sqlite3
+        serialises individual *statements*, but a transaction is begun
+        implicitly by the first statement and ``with connection`` only decides
+        whether to commit or roll back at the end. Two threads sharing this
+        connection therefore land inside one transaction, and the first to
+        leave commits both — or, if either raises, the rollback discards the
+        other request's work as well.
+
+        That is not theoretical. Without this lock, a webhook that had just
+        created a paid licence loses the row when an unrelated activation
+        fails a fraction of a second later: money taken, no licence issued.
+        """
+        with self._write_lock:
+            with self._connection:  # commits on success, rolls back on error
+                yield self._connection
 
     def query(self, sql: str, *args) -> List[sqlite3.Row]:
         return list(self._connection.execute(sql, args))
@@ -166,25 +186,40 @@ class Database:
                        key, machine_id)
         return dict(row) if row else None
 
-    def activate(self, key: str, machine_id: str, label: str = "") -> Dict[str, Any]:
-        """Bind a machine, or touch an existing binding. Seats are the caller's
-        business to check first — this records, it does not police."""
+    def activate(self, key: str, machine_id: str, label: str = "",
+                 max_machines: Optional[int] = None) -> Optional[Dict[str, Any]]:
+        """Bind a machine, or touch an existing binding.
+
+        Returns None when ``max_machines`` is given and the licence is full.
+
+        Deciding and writing happen together under the write lock, and that is
+        the whole point of this method. Both the seat number and the seat limit
+        are derived from counting what is already there, so two activations
+        arriving at the same moment would otherwise both read the old total:
+        two machines handed the same seat number, and — worse — a three-seat
+        licence quietly admitting a fourth machine.
+        """
         now = time.time()
-        existing = self.activation(key, machine_id)
-        if existing:
-            with self.write() as connection:
-                connection.execute(
-                    "UPDATE activations SET last_seen = ?, released_at = NULL,"
-                    " label = ? WHERE licence_key = ? AND machine_id = ?",
-                    (now, label or existing["label"], key, machine_id))
-            return self.activation(key, machine_id) or {}
-        taken = {row["seat"] for row in self.activations(key)}
-        seat = next(number for number in range(1, 1000) if number not in taken)
-        with self.write() as connection:
-            connection.execute(
-                "INSERT INTO activations (licence_key, machine_id, label, seat,"
-                " first_seen, last_seen) VALUES (?,?,?,?,?,?)",
-                (key, machine_id, label, seat, now, now))
+        seat = 0
+        with self._write_lock:
+            existing = self.activation(key, machine_id)
+            if existing:
+                with self._connection:
+                    self._connection.execute(
+                        "UPDATE activations SET last_seen = ?, released_at = NULL,"
+                        " label = ? WHERE licence_key = ? AND machine_id = ?",
+                        (now, label or existing["label"], key, machine_id))
+                return self.activation(key, machine_id) or {}
+            live = self.activations(key)
+            if max_machines is not None and len(live) >= int(max_machines):
+                return None
+            taken = {row["seat"] for row in live}
+            seat = next(number for number in range(1, 1000) if number not in taken)
+            with self._connection:
+                self._connection.execute(
+                    "INSERT INTO activations (licence_key, machine_id, label, seat,"
+                    " first_seen, last_seen) VALUES (?,?,?,?,?,?)",
+                    (key, machine_id, label, seat, now, now))
         self.log(key, "activated", f"seat {seat}: {label or machine_id[:8]}")
         return self.activation(key, machine_id) or {}
 

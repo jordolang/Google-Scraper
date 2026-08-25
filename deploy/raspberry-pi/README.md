@@ -68,14 +68,40 @@ not be forwarding ports to a Pi. But Stripe has to deliver webhooks, and the
 webhook is the only thing that turns a payment into a licence.
 
 A Cloudflare tunnel is the least painful answer — no port forwarding, no
-dynamic-DNS, TLS included:
+dynamic-DNS, TLS included. Install `cloudflared`, then create the tunnel and,
+crucially, **write it a config file**: `cloudflared service install` reads
+`/etc/cloudflared/config.yml` and nothing else. A tunnel with credentials and
+a DNS route but no ingress rule connects fine and routes nothing, which looks
+like success right up until Stripe's first webhook disappears.
 
 ```bash
 sudo ./install-licence-server.sh --with-tunnel     # installs cloudflared
-cloudflared tunnel login
-cloudflared tunnel create llsp-licence
+
+cloudflared tunnel login                            # opens a browser
+cloudflared tunnel create llsp-licence              # prints a tunnel UUID
 cloudflared tunnel route dns llsp-licence licence.yourdomain.com
+
+# The credentials land in ~/.cloudflared/<UUID>.json. The service runs as
+# root, so put them somewhere it can read:
+sudo mkdir -p /etc/cloudflared
+sudo cp ~/.cloudflared/<UUID>.json /etc/cloudflared/
+sudo tee /etc/cloudflared/config.yml >/dev/null <<'YAML'
+tunnel: llsp-licence
+credentials-file: /etc/cloudflared/<UUID>.json
+ingress:
+  - hostname: licence.yourdomain.com
+    service: http://127.0.0.1:8787
+  - service: http_status:404
+YAML
+
 sudo cloudflared service install                    # survives reboots
+sudo systemctl status cloudflared
+```
+
+Check it end to end before wiring Stripe up — this should answer from anywhere:
+
+```bash
+curl https://licence.yourdomain.com/healthz
 ```
 
 Then set `LLSP_PUBLIC_URL=https://licence.yourdomain.com` in the env file, and
