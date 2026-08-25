@@ -11,6 +11,14 @@ The bump is driven by the commit subject: `feat:` is a feature, everything else
 (`fix:`, `docs:`, `chore:`, `refactor:`…) is a fix-level change. See
 [Versioning](README.md#️-versioning) for the full rules.
 
+## [1.9] - 2026-08-25
+
+### Added
+- one-command licence server install for a Raspberry Pi
+
+### Fixed
+- serialise licence writes, and ten fixes from review
+
 ## [1.8a] - 2026-08-24
 
 ### Fixed
