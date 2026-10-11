@@ -40,14 +40,17 @@ class ToolsPage(Page):
 
     # -- phone lookup ------------------------------------------------------
     def _build_phone_lookup(self) -> Card:
-        card = Card("Find Missing Phone Numbers")
+        card = Card("Find Missing Phones & Emails")
         card.add(hint(
-            "Searches Google and Yellow Pages for every lead whose website scan "
-            "came up empty, and writes what it finds back to the CSVs."))
+            "Checks Yellow Pages, the BBB, web search, Facebook and Google for "
+            "every lead still missing a phone number or email, and writes what "
+            "it finds back to the CSVs. The Website Scraper does this on its own "
+            "after each scan."))
         self.source = QComboBox()
-        self.source.addItems(["Google + Yellow Pages", "Google only", "Yellow Pages only"])
+        self.source.addItems(["All sources", "Directories (Yellow Pages + BBB)",
+                              "Web search + Facebook", "Google only"])
         card.add(Field("Sources", self.source))
-        self.lookup_button = button("Look Up Missing Numbers", "Primary")
+        self.lookup_button = button("Find Missing Contacts", "Primary")
         self.lookup_button.clicked.connect(self.find_phones)
         card.add(self.lookup_button)
         self.lookup_status = hint("")
@@ -58,16 +61,16 @@ class ToolsPage(Page):
     def find_phones(self) -> None:
         if self.runner.running:
             return
-        targets = [lead for lead in self.state.leads
-                   if not lead.business.has_contact_info]
+        targets = [lead for lead in self.state.leads if lead.business.needs_lookup]
         if not targets:
             QMessageBox.information(self, "Nothing to look up",
-                                    "Every lead already has contact information.")
+                                    "Every lead already has a phone number and an email.")
             return
         sources = {
-            0: ("google", "yellowpages"),
-            1: ("google",),
-            2: ("yellowpages",),
+            0: None,
+            1: ("yellowpages", "bbb"),
+            2: ("duckduckgo", "facebook"),
+            3: ("google",),
         }[self.source.currentIndex()]
         pipeline = self.state.make_pipeline()
         # Numbers found here have to reach the file the leads came from,
@@ -77,13 +80,13 @@ class ToolsPage(Page):
         businesses = [lead.business for lead in targets]
         self._lookup_failed = False
         self.lookup_button.setEnabled(False)
-        self.lookup_status.setText(f"Looking up {len(targets)} number(s)…")
+        self.lookup_status.setText(f"Looking up {len(targets)} lead(s)…")
         self.state.set_status("Looking up numbers…")
 
         def job(progress, on_event):
             runtime.ensure_embedded_browser(progress)
-            return pipeline.find_phones(businesses, sources=sources,
-                                        progress=progress, on_event=on_event)
+            return pipeline.fill_missing_contacts(businesses, sources=sources,
+                                                  progress=progress, on_event=on_event)
 
         self.runner.start(job)
 

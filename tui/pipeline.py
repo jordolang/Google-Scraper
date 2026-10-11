@@ -151,6 +151,7 @@ class Pipeline:
                     "contact_name": ", ".join(b.contact_names),
                     "scraped_phone": ", ".join(b.phones),
                     "phone_source": b.phone_source,
+                    "email_source": b.email_source,
                 }
                 for b in scanned
                 if b.name
@@ -280,6 +281,53 @@ class Pipeline:
     ) -> List[Business]:
         """Look up phone numbers for businesses the website scan drew a blank on."""
         raise NotImplementedError
+
+    def fill_missing_contacts(
+        self,
+        businesses: Sequence[Business],
+        *,
+        sources: Optional[Sequence[str]] = None,
+        progress: ProgressFn = _noop,
+        on_event: ScanFn = _noop_event,
+    ) -> List[Business]:
+        """Find the phone numbers and emails the website scan did not.
+
+        Runs over every business still missing either one, looking only for
+        what is missing, and records which source each came from.
+        """
+        targets = [b for b in businesses if b.needs_lookup]
+        if not targets:
+            progress("Every business already has a phone number and an email.")
+            return list(businesses)
+        progress(f"Searching other sources for {len(targets)} business(es) "
+                 "missing a phone number or email…")
+        try:
+            self._fill_contacts(targets, sources, progress, on_event)
+            return list(businesses)
+        finally:
+            # What we found has to reach the CSVs even if the batch died.
+            self._safe_export_contacts(businesses, progress)
+
+    def _fill_contacts(self, targets, sources, progress, on_event) -> None:
+        raise NotImplementedError
+
+    @staticmethod
+    def _apply_found(business: Business, result: dict, progress: ProgressFn) -> int:
+        """Copy a lookup result onto ``business``; returns how many fields it filled."""
+        filled = 0
+        if business.needs_phone and result.get("phones"):
+            business.phones = list(result["phones"])
+            business.phone_source = result.get("phone_source", "")
+            progress(f"    ☎ {', '.join(business.phones)}  (via {business.phone_source})")
+            filled += 1
+        if business.needs_email and result.get("emails"):
+            business.emails = list(result["emails"])
+            business.email_source = result.get("email_source", "")
+            progress(f"    ✉ {', '.join(business.emails)}  (via {business.email_source})")
+            filled += 1
+        if not filled:
+            progress("    ✗ nothing new found")
+        return filled
 
     def build_message(
         self,
@@ -513,6 +561,44 @@ class LivePipeline(Pipeline):
             # The numbers we just found have to reach the CSVs (and through
             # them the call script), even if the batch died half way.
             self._safe_export_contacts(businesses, progress)
+
+    def _fill_contacts(self, targets, sources, progress, on_event) -> None:
+        from phone_lookup import CONTACT_SOURCES, PhoneLookup, city_state
+
+        lookup = PhoneLookup(headless=self.headless)
+        try:
+            total = len(targets)
+            for idx, business in enumerate(targets, 1):
+                name = business.name or "business"
+                where = city_state(business.address) or business.search_location
+                wants = " and ".join(
+                    w for w, missing in (("phone", business.needs_phone),
+                                         ("email", business.needs_email)) if missing)
+                progress(f"[{idx}/{total}] {name}: looking for {wants}…")
+                on_event(ScanEvent(idx, total, name, status="scanning"))
+                try:
+                    result = lookup.find_contacts(
+                        name, where, website=business.website,
+                        need_phone=business.needs_phone,
+                        need_email=business.needs_email,
+                        sources=tuple(sources or CONTACT_SOURCES),
+                    )
+                except Exception as exc:  # pragma: no cover - network dependent
+                    message = str(exc)[:80]
+                    progress(f"    ⚠ error: {message}")
+                    on_event(ScanEvent(idx, total, name, status="error", error=message))
+                    continue
+                if self._apply_found(business, result, progress):
+                    on_event(ScanEvent(
+                        idx, total, name, status="done",
+                        phones=list(result.get("phones") or []) if result.get("phone_source") else [],
+                        emails=list(result.get("emails") or []) if result.get("email_source") else [],
+                    ))
+                else:
+                    on_event(ScanEvent(idx, total, name, status="skipped"))
+                time.sleep(self.scan_delay)
+        finally:
+            lookup.close()
 
     def _run_lookup(self, lookup, targets, sources, progress, on_event) -> None:
         total = len(targets)
@@ -822,6 +908,27 @@ class DemoPipeline(Pipeline):
             return self._demo_lookup(businesses, targets, source, progress, on_event)
         finally:
             self._safe_export_contacts(businesses, progress)
+
+    def _fill_contacts(self, targets, sources, progress, on_event) -> None:
+        # Deterministic stand-ins for real directory hits, so the demo shows
+        # both kinds of fallback and where each came from.
+        for idx, business in enumerate(targets, 1):
+            name = business.name or "business"
+            on_event(ScanEvent(idx, len(targets), name, status="scanning"))
+            time.sleep(0.2)
+            slug = self._demo_slug(name) or "business"
+            result = {
+                "phones": [f"(614) 555-0{100 + idx:03d}"],
+                "phone_source": "yellowpages" if idx % 2 else "bbb",
+                "emails": [f"info@{slug}.com" if idx % 3 else f"{slug}@gmail.com"],
+                "email_source": "duckduckgo" if idx % 3 else "facebook",
+            }
+            progress(f"[{idx}/{len(targets)}] {name}")
+            self._apply_found(business, result, progress)
+            on_event(ScanEvent(idx, len(targets), name, status="done",
+                               phones=list(business.phones),
+                               emails=list(business.emails)))
+        return None
 
     def _demo_lookup(self, businesses, targets, source, progress, on_event):
         for idx, business in enumerate(targets, 1):

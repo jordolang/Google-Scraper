@@ -216,13 +216,25 @@ def _listing_row(lead: Lead) -> List:
             b.reviews_count, b.address, lead.industry, status]
 
 
+def _source_label(source: str, has_value: bool) -> str:
+    """Where a phone or email came from, in words; blank when there is none."""
+    if not has_value:
+        return ""
+    from phone_lookup import SOURCE_LABELS
+
+    return SOURCE_LABELS.get(source, source)
+
+
 def _result_row(lead: Lead) -> List:
     b = lead.business
+    phone_source = b.phone_source if b.phones else "maps"
     return [
         b.name,
         b.website,
         ", ".join(b.phones) or b.phone,
+        _source_label(phone_source, bool(b.phones or b.phone)),
         ", ".join(b.emails),
+        _source_label(b.email_source, bool(b.emails)),
         ", ".join(b.contact_names),
         b.address,
         b.insights.get("services", 0),
@@ -251,9 +263,10 @@ class ListingsPage(Page):
         )
         self.results = TablePanel(
             state,
-            ["Business Name", "Website", "Phone", "Email", "Contact",
-             "Address", "Services", "Images", "Rating", "Social Links"],
-            _result_row, export_prefix="data_results", stretch_column=5,
+            ["Business Name", "Website", "Phone", "Phone Found Via", "Email",
+             "Email Found Via", "Contact", "Address", "Services", "Images",
+             "Rating", "Social Links"],
+            _result_row, export_prefix="data_results", stretch_column=7,
         )
         self.tabs.addTab(self.listings, "Business Listings")
         self.tabs.addTab(self.results, "Data Results")

@@ -29,6 +29,9 @@ DEFAULTS: Dict[str, Any] = {
     "headless": True,
     "demo_mode": False,
     "scan_delay": 1.0,
+    # After the website scan, look up missing phones and emails on Yellow
+    # Pages, the BBB, web search and Facebook.
+    "auto_fill_contacts": True,
     "data_categories": [
         "Business Info", "Contact Info", "Services", "About Us",
         "Reviews/Testimonials", "Social Media Links", "Images",

@@ -205,6 +205,28 @@ def test_phone_lookup_skips_businesses_that_already_have_a_number(tmp_path):
     assert business.phone_source == ""  # untouched
 
 
+def test_fill_missing_contacts_records_where_each_came_from(tmp_path):
+    pipeline = DemoPipeline(data_root=tmp_path)
+    businesses = [
+        Business(name="No Contact Co", search_term="Electricians", search_location="Zanesville"),
+        Business(name="Phone Only", phone="(740) 555-0100", search_term="Electricians"),
+        Business(name="Complete", phone="(740) 555-0101", emails=["a@complete.com"],
+                 search_term="Electricians"),
+    ]
+    pipeline.fill_missing_contacts(businesses)
+
+    empty, phone_only, complete = businesses
+    assert empty.phones and empty.phone_source and empty.emails and empty.email_source
+    # Only the missing field is looked for.
+    assert phone_only.phones == [] and phone_only.phone_source == ""
+    assert phone_only.emails and phone_only.email_source
+    assert complete.email_source == "" and complete.emails == ["a@complete.com"]
+
+    rows = {row["name"]: row for row in read_csv(pipeline.last_contacts_csv)}
+    assert rows["No Contact Co"]["email_source"] == empty.email_source
+    assert rows["Phone Only"]["email"] == phone_only.emails[0]
+
+
 # --------------------------------------------------------------------------- #
 #  the call script reads data/ and skips emailed businesses
 # --------------------------------------------------------------------------- #

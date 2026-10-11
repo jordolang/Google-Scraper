@@ -7,7 +7,7 @@ from pathlib import Path
 from PySide6.QtCore import QUrl, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
-    QComboBox, QDoubleSpinBox, QFileDialog, QGridLayout, QHBoxLayout, QLabel,
+    QComboBox, QDoubleSpinBox, QFileDialog, QGridLayout, QHBoxLayout,
     QLineEdit, QMessageBox, QScrollArea, QSpinBox, QVBoxLayout, QWidget,
 )
 

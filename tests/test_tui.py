@@ -215,13 +215,15 @@ def test_app_navigates_entire_flow():
             await pilot.click("#compose")
             await pilot.pause()
             assert isinstance(app.screen, CustomizeScreen)
-            assert len(app.recipients) == 3
+            # Three emails from the websites; the other sources fill in the two
+            # the websites did not have.
+            assert len(app.recipients) == 5
 
             # Customize screen builds the messages and advances to Compose.
             await pilot.click("#compose")
             await pilot.pause()
             assert isinstance(app.screen, ComposeScreen)
-            assert len(app.messages) == 3
+            assert len(app.messages) == 5
 
             # Editing subject and switching recipients must persist per message.
             app.screen.query_one("#subject-field").value = "Edited 0"

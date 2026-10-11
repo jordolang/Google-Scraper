@@ -21,6 +21,19 @@ from ..workers import JobRunner
 from . import Page
 
 
+#: Logged between the website scan and the fallback lookup; the page uses it
+#: to tell the two phases' progress events apart.
+LOOKUP_STARTED = "Checking other sources for missing phones and emails…"
+
+def _with_source(value: str, source: str) -> str:
+    """``(614) 555-0101  ·  Yellow Pages`` for a value found off the website."""
+    from phone_lookup import SOURCE_LABELS
+
+    if not value or source in ("", "website"):
+        return value
+    return f"{value}  ·  {SOURCE_LABELS.get(source, source)}"
+
+
 class WebsiteScraperPage(Page):
     """Drives the contact scan and narrates it the way the mockup does."""
 
@@ -161,7 +174,11 @@ class WebsiteScraperPage(Page):
 
     def _build_controls(self) -> QHBoxLayout:
         self.phone_lookup_box = checkbox(
-            "Also look up missing phone numbers (Google + Yellow Pages)", False)
+            "Fill in missing phones and emails from Yellow Pages, BBB, web search "
+            "and Facebook",
+            bool(self.state.settings.get("auto_fill_contacts", True)))
+        self.phone_lookup_box.toggled.connect(
+            lambda on: self.state.settings.__setitem__("auto_fill_contacts", bool(on)))
         self.start_button = button("▶  Start Scraping", "Primary")
         self.pause_button = button("❚❚  Pause")
         self.stop_button = button("✕  Stop", "Danger")
@@ -241,14 +258,15 @@ class WebsiteScraperPage(Page):
 
         pipeline = self.state.make_pipeline()
         businesses = [lead.business for lead in self._targets]
-        want_phones = self.phone_lookup_box.isChecked()
+        fill_in = self.phone_lookup_box.isChecked()
 
         def job(progress, on_event):
             runtime.ensure_embedded_browser(progress)
             pipeline.scrape_contacts(businesses, progress=progress, on_event=on_event)
-            if want_phones:
-                progress("Looking up phone numbers for the sites that came up empty…")
-                pipeline.find_phones(businesses, progress=progress, on_event=on_event)
+            if fill_in:
+                progress(LOOKUP_STARTED)
+                pipeline.fill_missing_contacts(businesses, progress=progress,
+                                               on_event=on_event)
             return len(businesses)
 
         self.runner.start(job)
@@ -279,7 +297,7 @@ class WebsiteScraperPage(Page):
     def _on_message(self, line: str) -> None:
         self.log.append(f"{datetime.now():%H:%M:%S}  {line}")
         self.state.log("scan", line)
-        if line.startswith("Looking up phone numbers"):
+        if line == LOOKUP_STARTED:
             self._phase = "lookup"
 
     def _lead_for(self, event):
@@ -302,12 +320,19 @@ class WebsiteScraperPage(Page):
             # completed websites would push the bar past the batch size.
             if event.finished:
                 self._lookups_done += 1
-                self._data_points += len(event.phones)
+                self._data_points += len(event.phones) + len(event.emails)
                 self.ov_points.set_value(self._data_points)
                 if lead is not None:
                     self.state.lead_updated.emit(lead)
+                    self._current = lead
+                    self.selected_name.setText(lead.business.name)
+                    site = lead.business.website
+                    self.selected_site.setText(
+                        f'<a href="{site}" style="color:{theme.BLUE}">{site}</a>'
+                        if site else "No website")
+                    self._refresh_preview()
                 self.current_label.setText(
-                    f"Phone lookup: {self._lookups_done}/{total}")
+                    f"Other sources: {self._lookups_done}/{total}")
             return
 
         if event.status == "scanning":
@@ -347,8 +372,9 @@ class WebsiteScraperPage(Page):
         pairs = [
             ("Business Name", b.name),
             ("Website", b.website),
-            ("Phone", ", ".join(b.phones) or b.phone),
-            ("Email", ", ".join(b.emails)),
+            ("Phone", _with_source(", ".join(b.phones) or b.phone,
+                                   b.phone_source if b.phones else "maps")),
+            ("Email", _with_source(", ".join(b.emails), b.email_source)),
             ("Contact", ", ".join(b.contact_names)),
             ("Address", b.address),
         ]

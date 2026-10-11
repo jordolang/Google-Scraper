@@ -9,7 +9,6 @@ Run with ``python app.py`` (repo root), or the flow-specific shims
 from __future__ import annotations
 
 import argparse
-import sys
 from typing import List, Optional
 
 from textual.app import App, ComposeResult

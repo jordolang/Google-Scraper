@@ -46,9 +46,11 @@ class Business:
     insights: dict = field(default_factory=dict)
     social_links: List[str] = field(default_factory=list)
 
-    # Where :attr:`phones` came from when the website scan found nothing:
-    # "" (the site itself), "google", or "yellowpages".
+    # Where :attr:`phones` and :attr:`emails` came from when the website scan
+    # found nothing: "" (the site itself) or a phone_lookup source key such as
+    # "yellowpages", "bbb", "duckduckgo", "facebook" or "google".
     phone_source: str = ""
+    email_source: str = ""
 
     # Set once an outreach email is delivered; such a business is logged on the
     # listings CSV and skipped by the sales-call script.
@@ -92,11 +94,24 @@ class Business:
         return not self.phones and not self.phone
 
     @property
+    def needs_email(self) -> bool:
+        """True when no source has given us a usable email address yet."""
+        return not self.has_email
+
+    @property
+    def needs_lookup(self) -> bool:
+        """True when a phone number or an email is still missing."""
+        return self.needs_phone or self.needs_email
+
+    @property
     def contact_line(self) -> str:
         """Single-line summary of scraped contact info."""
         parts = []
         if self.emails:
-            parts.append(", ".join(self.emails))
+            email = ", ".join(self.emails)
+            if self.email_source:
+                email += f" (via {self.email_source})"
+            parts.append(email)
         if self.contact_names:
             parts.append("(" + ", ".join(self.contact_names) + ")")
         if self.phones:
@@ -124,6 +139,7 @@ class Business:
             search_term=str(data.get("search_term", "") or "").strip(),
             search_location=str(data.get("search_location", "") or "").strip(),
             phone_source=str(data.get("phone_source", "") or "").strip(),
+            email_source=str(data.get("email_source", "") or "").strip(),
             emails=_split_multi(data.get("email", "")),
             phones=_split_multi(data.get("scraped_phone", "")),
             contact_names=_split_multi(data.get("contact_name", "")),
@@ -143,6 +159,7 @@ class Business:
             "search_term": self.search_term,
             "search_location": self.search_location,
             "phone_source": self.phone_source,
+            "email_source": self.email_source,
         }
 
     def to_contact_row(self) -> dict:
@@ -151,6 +168,7 @@ class Business:
         row["search_term"] = self.search_term
         row["search_location"] = self.search_location
         row["phone_source"] = self.phone_source
+        row["email_source"] = self.email_source
         return row
 
     def to_generator_row(self) -> dict:
