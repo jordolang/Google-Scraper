@@ -105,6 +105,7 @@ def prepare() -> Path:
         globals()["_RESOLVED_DIR"] = target
         use_bundled_driver()
         seed_assets()
+        refresh_templates()
     else:
         use_bundled_driver()
         # The pitch script is looked up relative to the tui package, which the
@@ -473,3 +474,74 @@ def env_files() -> list[Path]:
         if path not in seen:
             seen.append(path)
     return seen
+
+
+def load_env() -> None:
+    """Read every .env the app knows about into the environment (existing wins)."""
+    try:
+        from send_emails import load_dotenv
+    except Exception:  # pragma: no cover - send_emails is always bundled
+        return
+    for candidate in env_files():
+        load_dotenv(str(candidate))
+
+
+def save_env_values(values: dict) -> Path:
+    """Write ``KEY=value`` pairs into the app's own .env and the environment.
+
+    API keys live here rather than in settings.json, so the settings file can
+    be shared or backed up without leaking them. An empty value removes the key.
+    """
+    path = app_data_dir() / ".env"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+    kept = [line for line in lines
+            if line.partition("=")[0].strip() not in values]
+    for key, value in values.items():
+        value = str(value or "").strip()
+        if value:
+            kept.append(f"{key}={value}")
+            os.environ[key] = value
+        else:
+            os.environ.pop(key, None)
+    path.write_text("\n".join(kept) + "\n", encoding="utf-8")
+    try:
+        path.chmod(0o600)
+    except OSError:  # pragma: no cover - Windows ignores POSIX modes
+        pass
+    return path
+
+
+#: Written into every template the build script produces. A user's copy
+#: without it predates the current design.
+TEMPLATE_MARKER = "<!-- llsp-template: 2 -->"
+
+
+def refresh_templates() -> Optional[Path]:
+    """Replace a packaged install's old email templates with the current ones.
+
+    Packaged builds copy the templates out once, so a new design would never
+    reach someone who installed an older version. Copies that predate the
+    current design are moved to email_templates_backup_<date>/ (nothing is
+    deleted) and replaced. Returns the backup folder, or None if nothing moved.
+    """
+    if not frozen():
+        return None
+    source = bundle_dir() / "email_templates"
+    target = app_data_dir() / "email_templates"
+    if not source.is_dir() or not target.is_dir():
+        return None
+    stale = [path for path in target.glob("*.html")
+             if TEMPLATE_MARKER not in path.read_text(encoding="utf-8", errors="ignore")]
+    if not stale:
+        return None
+    from datetime import datetime
+
+    backup = app_data_dir() / f"email_templates_backup_{datetime.now():%Y%m%d}"
+    backup.mkdir(parents=True, exist_ok=True)
+    for path in stale:
+        shutil.move(str(path), str(backup / path.name))
+        fresh = source / path.name
+        if fresh.exists():
+            shutil.copy2(fresh, path)
+    return backup

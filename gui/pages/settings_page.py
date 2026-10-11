@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
-from PySide6.QtCore import QUrl, Signal
+from PySide6.QtCore import Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
-    QComboBox, QDoubleSpinBox, QFileDialog, QGridLayout, QHBoxLayout,
+    QComboBox, QDoubleSpinBox, QFileDialog, QGridLayout, QHBoxLayout, QLabel,
     QLineEdit, QMessageBox, QScrollArea, QSpinBox, QVBoxLayout, QWidget,
 )
 
-from .. import services, settings_store
+from .. import runtime, services, settings_store
 from ..widgets.common import Card, Field, button, checkbox, hint, title
 from ..workers import JobRunner
 from . import Page
@@ -34,6 +35,8 @@ class SettingsPage(Page):
         layout.setContentsMargins(0, 0, 8, 0)
         layout.setSpacing(12)
         layout.addWidget(self._build_sender())
+        layout.addWidget(self._build_deliverability())
+        layout.addWidget(self._build_images())
         layout.addWidget(self._build_scraping())
         layout.addWidget(self._build_storage())
         layout.addStretch(1)
@@ -101,6 +104,65 @@ class SettingsPage(Page):
         card.add(self.test_button)
         return card
 
+    def _build_deliverability(self) -> Card:
+        card = Card("Deliverability")
+        self.send_via = QComboBox()
+        self.send_via.addItem("Your email account (SMTP)", "smtp")
+        self.send_via.addItem("Resend (recommended for volume)", "resend")
+        self.resend_key = QLineEdit()
+        self.resend_key.setEchoMode(QLineEdit.Password)
+        self.resend_key.setPlaceholderText("re_…  (only needed when sending with Resend)")
+        self.sender_name = QLineEdit()
+        self.sender_address = QLineEdit()
+        self.sender_address.setPlaceholderText("123 Main St, Columbus, OH 43215")
+        self.unsubscribe_url = QLineEdit()
+        self.unsubscribe_url.setPlaceholderText("Optional https page; blank = reply \"Unsubscribe\"")
+
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(10)
+        grid.addWidget(Field("Send With", self.send_via), 0, 0)
+        grid.addWidget(Field("Resend API Key", self.resend_key), 0, 1)
+        grid.addWidget(Field("Your Name (signature and From)", self.sender_name), 1, 0)
+        grid.addWidget(Field("Postal Address (email footer)", self.sender_address), 1, 1)
+        grid.addWidget(Field("Unsubscribe Page", self.unsubscribe_url), 2, 0, 1, 2)
+        card.add_layout(grid)
+        card.add(hint(
+            "Every email goes out with a plain-text copy, an unsubscribe header and "
+            "a randomised gap between sends. A postal address in the footer is "
+            "required for commercial email in the US. API keys are kept in the "
+            "app's own .env file, not in settings.json."))
+        self.domain_button = button("Check My Domain")
+        self.domain_button.setToolTip("Looks up SPF, DKIM and DMARC for your From address.")
+        self.domain_button.clicked.connect(self.check_domain)
+        card.add(self.domain_button)
+        self.domain_result = QLabel("")
+        self.domain_result.setWordWrap(True)
+        self.domain_result.setTextFormat(Qt.RichText)
+        self.domain_result.setStyleSheet("font-size: 12px;")
+        card.add(self.domain_result)
+        return card
+
+    def _build_images(self) -> Card:
+        card = Card("Image Hosting")
+        self.supabase_url = QLineEdit()
+        self.supabase_url.setPlaceholderText("https://<project>.supabase.co")
+        self.supabase_bucket = QLineEdit()
+        self.supabase_key = QLineEdit()
+        self.supabase_key.setEchoMode(QLineEdit.Password)
+        self.supabase_key.setPlaceholderText("service_role key")
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(10)
+        grid.addWidget(Field("Supabase Project URL", self.supabase_url), 0, 0)
+        grid.addWidget(Field("Public Bucket", self.supabase_bucket), 0, 1)
+        grid.addWidget(Field("Service Key", self.supabase_key), 1, 0, 1, 2)
+        card.add_layout(grid)
+        card.add(hint(
+            "Images in an email have to live at a public web address. Images you "
+            "add on the Outreach page are uploaded here and linked into each email."))
+        return card
+
     def _build_scraping(self) -> Card:
         card = Card("Scraping")
         self.headless = checkbox("Run Chrome headless (no visible browser window)", True)
@@ -160,6 +222,16 @@ class SettingsPage(Page):
         self.max_results.setValue(int(s.get("max_results", 50)))
         self.data_root.setText(str(s.get("data_root", "")))
         self.password.setText(self.state.password)
+        runtime.load_env()
+        index = self.send_via.findData(s.get("send_via", "smtp"))
+        self.send_via.setCurrentIndex(max(0, index))
+        self.resend_key.setText(os.environ.get("RESEND_API_KEY", ""))
+        self.sender_name.setText(str(s.get("sender_name", "")))
+        self.sender_address.setText(str(s.get("sender_address", "")))
+        self.unsubscribe_url.setText(str(s.get("unsubscribe_url", "")))
+        self.supabase_url.setText(str(s.get("supabase_url", "")))
+        self.supabase_bucket.setText(str(s.get("supabase_bucket", "") or "email-images"))
+        self.supabase_key.setText(os.environ.get("SUPABASE_SERVICE_KEY", ""))
 
     def save(self) -> None:
         self.state.password = self.password.text()
@@ -174,7 +246,20 @@ class SettingsPage(Page):
             scan_delay=float(self.scan_delay.value()),
             max_results=int(self.max_results.value()),
             data_root=self.data_root.text().strip(),
+            send_via=self.send_via.currentData() or "smtp",
+            sender_name=self.sender_name.text().strip(),
+            sender_address=self.sender_address.text().strip(),
+            unsubscribe_url=self.unsubscribe_url.text().strip(),
+            supabase_url=self.supabase_url.text().strip().rstrip("/"),
+            supabase_bucket=self.supabase_bucket.text().strip() or "email-images",
         )
+        try:
+            runtime.save_env_values({
+                "RESEND_API_KEY": self.resend_key.text().strip(),
+                "SUPABASE_SERVICE_KEY": self.supabase_key.text().strip(),
+            })
+        except OSError as exc:
+            self.state.log("settings", f"Could not save API keys: {exc}")
         if path is None:
             self.state.log("settings", "Could not write the settings file.")
             QMessageBox.warning(
@@ -214,6 +299,46 @@ class SettingsPage(Page):
         path.mkdir(parents=True, exist_ok=True)
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
+    def check_domain(self) -> None:
+        """Look up SPF, DKIM and DMARC for the From address, off the UI thread."""
+        if self.runner.running:
+            return
+        import deliverability
+
+        from_email = self.from_email.text().strip()
+        smtp_server = self.smtp_server.text().strip()
+        if not smtp_server and from_email:
+            from send_emails import EmailSender
+
+            smtp_server = EmailSender(from_email=from_email).smtp_server
+        send_via = self.send_via.currentData() or "smtp"
+        self._tested_sender = None
+        self.domain_button.setEnabled(False)
+        self.domain_result.setText("Checking DNS…")
+
+        def job(progress, on_event):
+            return deliverability.check_domain(
+                from_email, smtp_server=smtp_server, send_via=send_via)
+
+        self.runner.start(job)
+
+    def _show_domain(self, checks) -> None:
+        import html
+
+        import deliverability
+
+        marks = {"pass": ("✓", "#16a34a"), "warn": ("!", "#d97706"),
+                 "fail": ("✕", "#dc2626")}
+        rows = []
+        for check in checks:
+            mark, colour = marks.get(check.status, ("?", "#6b7280"))
+            fix = (f'<br><span style="color:#6b7280;">Fix: {html.escape(check.fix)}</span>'
+                   if check.fix and check.status != "pass" else "")
+            rows.append(f'<p style="margin:0 0 6px 0;"><b style="color:{colour};">{mark} '
+                        f'{html.escape(check.name)}</b> {html.escape(check.detail)}{fix}</p>')
+        summary = html.escape(deliverability.summary(checks))
+        self.domain_result.setText(f"<p><b>{summary}</b></p>" + "".join(rows))
+
     def test_connection(self) -> None:
         """Log in to the SMTP server and hang up — no message is sent.
 
@@ -252,6 +377,9 @@ class SettingsPage(Page):
         self.runner.start(job)
 
     def _on_test_finished(self, ok) -> None:
+        if isinstance(ok, list):
+            self._show_domain(ok)
+            return
         sender = self._tested_sender
         if sender is None:
             return
@@ -268,10 +396,14 @@ class SettingsPage(Page):
                 "that owns the domain and the password an app-specific one.")
 
     def _on_test_failed(self, message: str) -> None:
+        if not self.domain_button.isEnabled():
+            self.domain_result.setText(f"Could not check the domain: {message}")
+            return
         self.state.log("settings", f"SMTP test failed: {message}")
         QMessageBox.critical(self, "Could not connect", message)
 
     def _on_test_ended(self) -> None:
+        self.domain_button.setEnabled(True)
         self.test_button.setEnabled(True)
         self.test_button.setText("Test Connection")
         self.state.set_status("Ready")

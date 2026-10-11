@@ -6,7 +6,8 @@ has to write inside Program Files.
 
 Nothing secret is stored here. The SMTP password is read from the environment
 (or a ``.env`` file) and otherwise only ever held in memory for the lifetime of
-the window; see :mod:`gui.state`.
+the window; see :mod:`gui.state`. API keys (Resend, Supabase) go in the app's
+own ``.env`` via :func:`gui.runtime.save_env_values`.
 """
 
 from __future__ import annotations
@@ -39,6 +40,19 @@ DEFAULTS: Dict[str, Any] = {
     ],
     # -- outreach -------------------------------------------------------
     "from_email": "jordan@jlang.dev",
+    "sender_name": "Jordan Lang",
+    # Printed in every email's footer; US law (CAN-SPAM) expects a postal
+    # address in commercial email.
+    "sender_address": "",
+    # An https page that unsubscribes people; blank = reply "Unsubscribe".
+    "unsubscribe_url": "",
+    # "smtp" or "resend". The Resend API key lives in the app's .env.
+    "send_via": "smtp",
+    # Supabase Storage for email images. The service key lives in the .env.
+    "supabase_url": "",
+    "supabase_bucket": "email-images",
+    # The image shown in every email that has no preview of its own.
+    "email_image": "",
     "reply_to": "",
     "smtp_username": "",
     "smtp_server": "",

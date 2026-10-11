@@ -560,7 +560,7 @@ def test_build_message_honours_industry_kwarg():
     b = Business(name="Bella Salon", category="Hair salon", address="1 St, Dublin, OH",
                  emails=["bella@example.com"])
     msg = pipeline.build_message(b, industry_key="beauty_personal_care")
-    assert "salons & studios" in msg.html  # rendered the beauty template
+    assert "salons &amp; studios" in msg.html  # rendered the beauty template
 
 
 def test_customize_screen_preselects_industry_and_applies_price_override():

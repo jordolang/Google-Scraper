@@ -978,3 +978,36 @@ def test_icon_is_a_multi_size_ico():
     reserved, kind, count = struct.unpack("<HHH", data[:6])
     assert (reserved, kind) == (0, 1)
     assert count >= 4  # 16px through 256px, so Windows never has to guess
+
+
+def test_api_keys_go_to_the_app_env_not_settings(tmp_path, monkeypatch):
+    from gui import runtime
+
+    monkeypatch.setenv("LLSP_DATA_DIR", str(tmp_path))
+    monkeypatch.delenv("RESEND_API_KEY", raising=False)
+    (tmp_path / ".env").write_text("EMAIL_PASSWORD=keep\nRESEND_API_KEY=old\n")
+    path = runtime.save_env_values({"RESEND_API_KEY": "re_new", "SUPABASE_SERVICE_KEY": ""})
+    assert path.read_text().splitlines() == ["EMAIL_PASSWORD=keep", "RESEND_API_KEY=re_new"]
+    import os
+
+    assert os.environ["RESEND_API_KEY"] == "re_new"
+    monkeypatch.delenv("RESEND_API_KEY")
+
+
+def test_old_templates_are_backed_up_and_replaced(tmp_path, monkeypatch):
+    from gui import runtime
+
+    bundle = tmp_path / "bundle"
+    (bundle / "email_templates").mkdir(parents=True)
+    (bundle / "email_templates" / "general.html").write_text(runtime.TEMPLATE_MARKER + " new")
+    data = tmp_path / "data"
+    (data / "email_templates").mkdir(parents=True)
+    (data / "email_templates" / "general.html").write_text("old dark design")
+    monkeypatch.setenv("LLSP_DATA_DIR", str(data))
+    monkeypatch.setattr(runtime, "frozen", lambda: True)
+    monkeypatch.setattr(runtime, "bundle_dir", lambda: bundle)
+
+    backup = runtime.refresh_templates()
+    assert (backup / "general.html").read_text() == "old dark design"
+    assert runtime.TEMPLATE_MARKER in (data / "email_templates" / "general.html").read_text()
+    assert runtime.refresh_templates() is None  # already current

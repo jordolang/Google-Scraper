@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import tempfile
 from datetime import datetime
 from pathlib import Path
@@ -26,7 +27,7 @@ from ..widgets.common import (
 from ..workers import JobRunner
 from . import Page
 
-SEND_METHODS = ["SMTP (send for real)", "Dry run (compose only, nothing sent)"]
+SEND_METHODS = ["Send for real", "Dry run (compose only, nothing sent)"]
 CALL_OUTCOMES = ["Interested — follow up", "Not interested", "Voicemail",
                  "Wrong number", "Call back later", "Won the job"]
 
@@ -154,6 +155,15 @@ class EmailCampaigns(QWidget):
         self.edit_template_button = button("Edit Template…")
         self.edit_template_button.clicked.connect(self._edit_template)
 
+        self.email_image = QLineEdit(str(settings.get("email_image", "")))
+        self.email_image.setPlaceholderText("https://… or upload one")
+        self.email_image.setToolTip(
+            "Shown near the top of every email that has no website preview of its "
+            "own. Must be a public https address; Upload puts a file on your "
+            "image host and fills this in.")
+        self.upload_image_button = button("Upload Image…")
+        self.upload_image_button.clicked.connect(self._upload_image)
+
         self.send_method = QComboBox()
         self.send_method.addItems(SEND_METHODS)
         self.send_method.setCurrentIndex(1 if settings.get("dry_run", True) else 0)
@@ -179,6 +189,13 @@ class EmailCampaigns(QWidget):
         ):
             card.add(Field(label, widget))
         card.add(self.edit_template_button)
+        image_row = QHBoxLayout()
+        image_row.addWidget(Field("Email Image", self.email_image), 1)
+        image_column = QVBoxLayout()
+        image_column.addSpacing(15)
+        image_column.addWidget(self.upload_image_button)
+        image_row.addLayout(image_column)
+        card.add_layout(image_row)
         card.add(h_line())
         card.add(section_heading("Send Options"))
         for label, widget in (
@@ -296,11 +313,53 @@ class EmailCampaigns(QWidget):
             email_delay=float(self.delay.value()),
             daily_limit=int(self.daily_limit.value()),
             dry_run=self.send_method.currentIndex() == 1,
+            email_image=self.email_image.text().strip(),
         )
+
+    def _upload_image(self) -> None:
+        """Pick an image, put it on the image host, and use its public URL."""
+        from PySide6.QtWidgets import QFileDialog
+
+        from image_host import ImageHost, ImageHostError
+
+        path, _filter = QFileDialog.getOpenFileName(
+            self, "Choose an image for your emails", str(Path.home()),
+            "Images (*.png *.jpg *.jpeg *.gif *.webp)")
+        if not path:
+            return
+        services.runtime.load_env()
+        settings = self.state.settings
+        host = ImageHost(url=settings.get("supabase_url", ""),
+                         bucket=settings.get("supabase_bucket", ""))
+        if not host.configured():
+            QMessageBox.information(
+                self, "Set up image hosting first",
+                "Emails can only show images that live at a public web address.\n\n"
+                "Add your Supabase project URL, bucket and service key under "
+                "Settings → Image Hosting, then upload again.")
+            return
+        self.upload_image_button.setEnabled(False)
+        self.upload_image_button.setText("Uploading…")
+        try:
+            url = host.upload_file(path)
+        except (ImageHostError, OSError) as exc:
+            QMessageBox.critical(self, "Upload failed", str(exc))
+            return
+        except Exception as exc:  # noqa: BLE001 - network errors, mostly
+            QMessageBox.critical(self, "Upload failed",
+                                 f"{exc}\n\nCheck your internet connection.")
+            return
+        finally:
+            self.upload_image_button.setEnabled(True)
+            self.upload_image_button.setText("Upload Image…")
+        self.email_image.setText(url)
+        self._save_settings()
+        self.state.log("email", f"Uploaded {Path(path).name} → {url}")
 
     def _build_message(self, lead: Lead, pipeline):
         message = pipeline.build_message(
-            lead.business, industry_key=self.template.currentData() or None)
+            lead.business, industry_key=self.template.currentData() or None,
+            hero_image=lead.business.hero_image or self.email_image.text().strip())
         subject = self.subject.text().strip()
         if subject:
             message.subject = subject.replace("{business}", lead.business.name)
@@ -381,8 +440,19 @@ class EmailCampaigns(QWidget):
             chosen = chosen[:limit]
 
         password = ""
+        resend = self.state.settings.get("send_via") == "resend"
+        if not dry_run and resend:
+            services.runtime.load_env()
+            password = os.environ.get("RESEND_API_KEY", "")
+            if not password:
+                QMessageBox.warning(
+                    self, "No Resend API key",
+                    "Sending is set to Resend, but no API key is saved. Add it "
+                    "under Settings → Deliverability, or switch Send With back "
+                    "to your email account.")
+                return
         if not dry_run:
-            password = self.state.password
+            password = password or self.state.password
             if not password:
                 password, ok = QInputDialog.getText(
                     self, "SMTP password",

@@ -23,6 +23,7 @@ Two implementations are provided:
 
 from __future__ import annotations
 
+import random
 import re
 import time
 from pathlib import Path
@@ -66,8 +67,19 @@ class Pipeline:
         reply_to: str = "",
         scan_delay: float = 1.0,
         max_results: int = 0,
+        from_name: str = "Jordan Lang",
+        sender_address: str = "",
+        unsubscribe_url: str = "",
+        send_via: str = "smtp",
     ) -> None:
         self.from_email = from_email
+        # Who the email is from, the postal address in its footer, where its
+        # Unsubscribe link points, and whether it goes out over SMTP or the
+        # Resend API ("smtp" | "resend").
+        self.from_name = from_name or "Jordan Lang"
+        self.sender_address = sender_address or ""
+        self.unsubscribe_url = unsubscribe_url or ""
+        self.send_via = send_via if send_via in ("smtp", "resend") else "smtp"
         # SMTP details, when the account needs more than the address implies —
         # an iCloud custom domain authenticates as the Apple ID that owns it,
         # not as the alias in the From: header. Left as None, EmailSender
@@ -207,14 +219,17 @@ class Pipeline:
         Everything that talks to SMTP goes through here, so a connection test
         and a real campaign cannot end up using different accounts.
         """
-        from send_emails import EmailSender
+        from send_emails import EmailSender, ResendSender
 
-        return EmailSender(
+        sender_class = ResendSender if self.send_via == "resend" else EmailSender
+        return sender_class(
             from_email=self.from_email,
             smtp_server=self.smtp_server,
             smtp_port=self.smtp_port,
             smtp_username=self.smtp_username,
             reply_to=self.reply_to,
+            from_name=self.from_name,
+            unsubscribe_url=self.unsubscribe_url,
         )
 
     def _safe_export_contacts(
@@ -644,6 +659,9 @@ class LivePipeline(Pipeline):
             output_dir="generated_emails",
             from_email=self.from_email,
             templates_dir=self.templates_dir,
+            sender_name=self.from_name,
+            sender_address=self.sender_address,
+            unsubscribe_url=self.unsubscribe_url,
         )
         html, _filename, email = generator.generate_email(
             business.to_generator_row(),
@@ -673,7 +691,8 @@ class LivePipeline(Pipeline):
         if not dry_run:
             progress(f"Connecting to {sender.smtp_server}:{sender.smtp_port}…")
             if not sender.connect(password):
-                progress("❌ SMTP connection/authentication failed.")
+                progress("❌ Resend API key rejected." if self.send_via == "resend"
+                         else "❌ SMTP connection/authentication failed.")
                 stats["error"] = "authentication failed"
                 return stats
             progress("✓ Connected.")
@@ -695,7 +714,9 @@ class LivePipeline(Pipeline):
                 if ok:
                     delivered.append(msg)
                 if idx < len(messages):
-                    time.sleep(delay)
+                    # A little randomness: a perfectly regular cadence is one
+                    # of the patterns providers use to spot bulk senders.
+                    time.sleep(delay * random.uniform(0.75, 1.25) if delay else 0)
         finally:
             if not dry_run:
                 sender.disconnect()
@@ -954,7 +975,7 @@ class DemoPipeline(Pipeline):
         hero_image: str = "",
     ) -> EmailMessage:
         subject = f"Transform {business.name}'s Online Presence"
-        # Render the real dark industry template so the demo previews exactly what
+        # Render the real industry template so the demo previews exactly what
         # a live run produces. Falls back to plain HTML if a template is missing.
         try:
             from generate_emails import EmailGenerator
@@ -963,6 +984,9 @@ class DemoPipeline(Pipeline):
                 output_dir="generated_emails",
                 from_email=self.from_email,
                 templates_dir=self.templates_dir,
+                sender_name=self.from_name,
+                sender_address=self.sender_address,
+                unsubscribe_url=self.unsubscribe_url,
             )
             html, _filename, _email = generator.generate_email(
                 business.to_generator_row(),

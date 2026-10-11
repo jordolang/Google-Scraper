@@ -76,6 +76,10 @@ def make_pipeline(settings: Dict) -> Pipeline:
         "reply_to": settings.get("reply_to") or "",
         "scan_delay": float(settings.get("scan_delay") or 1.0),
         "max_results": int(settings.get("max_results") or 0),
+        "from_name": settings.get("sender_name") or "Jordan Lang",
+        "sender_address": settings.get("sender_address") or "",
+        "unsubscribe_url": settings.get("unsubscribe_url") or "",
+        "send_via": settings.get("send_via") or "smtp",
     }
     if settings.get("demo_mode"):
         return DemoPipeline(**kwargs)
