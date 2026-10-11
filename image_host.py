@@ -8,7 +8,8 @@ and hands back that address::
     host.upload_file("~/Pictures/preview.png")
     # 'https://abcd.supabase.co/storage/v1/object/public/email-images/2026/10/preview-3f9a1c.png'
 
-The key is the project's ``service_role`` key, which can write to the bucket.
+The key is the project's secret key (``sb_secret_…``, or the legacy
+``service_role`` key), which can write to the bucket.
 It stays on this computer (in the app's ``.env``), never in an email.
 """
 
@@ -72,17 +73,19 @@ class ImageHost:
         path = object_path(name, data)
         import requests
 
+        headers = {
+            "apikey": self.key,
+            "Content-Type": content_type,
+            "Cache-Control": "max-age=31536000",
+            "x-upsert": "true",
+        }
+        # Legacy service_role keys are JWTs and go in Authorization too. The
+        # newer sb_secret_ keys are not JWTs and must only go in apikey.
+        if not self.key.startswith("sb_"):
+            headers["Authorization"] = f"Bearer {self.key}"
         response = requests.post(
             f"{self.url}/storage/v1/object/{self.bucket}/{path}",
-            data=data,
-            headers={
-                "Authorization": f"Bearer {self.key}",
-                "apikey": self.key,
-                "Content-Type": content_type,
-                "Cache-Control": "max-age=31536000",
-                "x-upsert": "true",
-            },
-            timeout=60,
+            data=data, headers=headers, timeout=60,
         )
         if response.status_code >= 300:
             raise ImageHostError(explain(response.status_code, response.text, self.bucket))
@@ -101,8 +104,9 @@ def explain(status: int, body: str, bucket: str) -> str:
     """Turn a Supabase error into the step that fixes it."""
     lowered = (body or "").lower()
     if status in (401, 403) or "jwt" in lowered or "signature" in lowered:
-        return ("Supabase refused the key. Use the service_role key from "
-                "Project Settings → API Keys, not the anon key.")
+        return ("Supabase refused the key. Use a secret key (sb_secret_…) or the "
+                "legacy service_role key from Project Settings → API Keys, not "
+                "the publishable or anon key.")
     if status == 404 or "bucket not found" in lowered:
         return (f"There is no bucket called {bucket!r}. In Supabase, open Storage → "
                 f"New bucket, name it {bucket}, and turn on Public bucket.")

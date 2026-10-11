@@ -158,6 +158,9 @@ def test_image_host_uploads_and_returns_the_public_url(tmp_path, monkeypatch):
     assert path.endswith(".png") and "shop-front-" in path
     assert calls["headers"]["Authorization"] == "Bearer k"
     assert calls["headers"]["Content-Type"] == "image/png"
+    image_host.ImageHost(url="https://abcd.supabase.co", key="sb_secret_x").upload_file(image)
+    assert "Authorization" not in calls["headers"]
+    assert calls["headers"]["apikey"] == "sb_secret_x"
 
 
 def test_image_host_explains_its_failures(tmp_path):
@@ -175,5 +178,5 @@ def test_image_host_explains_its_failures(tmp_path):
 
 
 def test_image_host_maps_status_codes_to_fixes():
-    assert "service_role" in image_host.explain(401, "", "b")
+    assert "sb_secret_" in image_host.explain(401, "", "b")
     assert "New bucket" in image_host.explain(404, "Bucket not found", "email-images")

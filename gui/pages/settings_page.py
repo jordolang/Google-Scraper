@@ -150,7 +150,7 @@ class SettingsPage(Page):
         self.supabase_bucket = QLineEdit()
         self.supabase_key = QLineEdit()
         self.supabase_key.setEchoMode(QLineEdit.Password)
-        self.supabase_key.setPlaceholderText("service_role key")
+        self.supabase_key.setPlaceholderText("sb_secret_…  (or the legacy service_role key)")
         grid = QGridLayout()
         grid.setHorizontalSpacing(12)
         grid.setVerticalSpacing(10)
