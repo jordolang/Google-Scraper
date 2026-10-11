@@ -154,6 +154,10 @@ if MACOS:
                  if os.path.exists(rooted("VERSION")) else "0.0"),
         info_plist={
             "NSHighResolutionCapable": True,
+            "CFBundleDisplayName": "Local Lead Scraper Pro",
+            # PySide6 6.6+ and the bundled Chromium both need Big Sur or later.
+            "LSMinimumSystemVersion": "11.0",
+            "NSRequiresAquaSystemAppearance": False,
             # The app drives its own bundled Chromium and writes CSVs under
             # ~/Library; it never needs the camera, mic or contacts.
             "LSApplicationCategoryType": "public.app-category.business",

@@ -43,6 +43,31 @@ def bundle_dir() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
+def mac_support_dir(legacy: Path) -> Path:
+    """``~/Library/Application Support/<app>``, where a Mac app keeps its files.
+
+    Earlier Mac builds used the Linux-style ``legacy`` folder (~/.local/share
+    or ~/.config). Its contents move across the first time, so nobody loses
+    their settings or exports; if the move fails, the old folder stays in use.
+    """
+    target = Path.home() / "Library" / "Application Support" / APP_NAME
+    if legacy.is_dir() and not target.exists():
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(legacy), str(target))
+        except OSError:
+            return legacy
+    elif legacy.is_dir() and target.is_dir() and legacy != target:
+        # Settings and data shared one legacy name; merge what's missing.
+        for item in legacy.iterdir():
+            if not (target / item.name).exists():
+                try:
+                    shutil.move(str(item), str(target / item.name))
+                except OSError:
+                    pass
+    return target
+
+
 def app_data_dir() -> Path:
     """Writable per-user folder for exports, settings and edited assets."""
     override = os.environ.get("LLSP_DATA_DIR")
@@ -51,6 +76,8 @@ def app_data_dir() -> Path:
     local = os.environ.get("LOCALAPPDATA")
     if local:  # Windows
         return Path(local) / APP_NAME
+    if sys.platform == "darwin" and not os.environ.get("XDG_DATA_HOME"):
+        return mac_support_dir(Path.home() / ".local" / "share" / APP_NAME)
     xdg = os.environ.get("XDG_DATA_HOME")
     base = Path(xdg) if xdg else Path.home() / ".local" / "share"
     return base / APP_NAME

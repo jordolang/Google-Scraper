@@ -28,6 +28,9 @@ on:
       - "industries.py"
       - "pricing_store.py"
       - "email_config.py"
+      - "deliverability.py"
+      - "image_host.py"
+      - "site_preview.py"
       - "email_template.html"
       - "pitch_script.md"
       - "requirements*.txt"
@@ -76,6 +79,7 @@ jobs:
       RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
       BUNDLE: "Local Lead Scraper Pro.app"
       ASSET: LocalLeadScraperPro-macos-${{ matrix.arch }}.zip
+      DMG: LocalLeadScraperPro-macos-${{ matrix.arch }}.dmg
 
     steps:
       - uses: actions/checkout@v4
@@ -139,10 +143,22 @@ jobs:
           cd ..
           echo "packed $ASSET ($(du -h "$ASSET" | cut -f1))"
 
+      - name: Make the disk image
+        # The .dmg is what a Mac user downloads: it opens to the app, an
+        # Applications shortcut and the first-launch steps. create-dmg lays
+        # the window out; make_dmg.py falls back to a plain image without it.
+        run: |
+          brew install create-dmg || echo "create-dmg unavailable; plain dmg"
+          python packaging/make_dmg.py "dist/$BUNDLE" "$DMG"
+          hdiutil verify "$DMG"
+          echo "packed $DMG ($(du -h "$DMG" | cut -f1))"
+
       - uses: actions/upload-artifact@v4
         with:
           name: LocalLeadScraperPro-macos-${{ matrix.arch }}
-          path: ${{ env.ASSET }}
+          path: |
+            ${{ env.DMG }}
+            ${{ env.ASSET }}
           if-no-files-found: error
           retention-days: 90
 
@@ -152,7 +168,9 @@ jobs:
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           name: ${{ env.RELEASE_TAG }}
-          files: ${{ env.ASSET }}
+          files: |
+            ${{ env.DMG }}
+            ${{ env.ASSET }}
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

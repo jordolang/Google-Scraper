@@ -1,8 +1,9 @@
 """Persisted user preferences for the desktop app.
 
 Settings live next to the user's other application data — on Windows that is
-``%APPDATA%\\LocalLeadScraperPro\\settings.json`` — so a packaged .exe never
-has to write inside Program Files.
+``%APPDATA%\\LocalLeadScraperPro\\settings.json``, and on a Mac
+``~/Library/Application Support/LocalLeadScraperPro/settings.json`` — so a
+packaged app never has to write inside its own install folder.
 
 Nothing secret is stored here. The SMTP password is read from the environment
 (or a ``.env`` file) and otherwise only ever held in memory for the lifetime of
@@ -14,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any, Dict
@@ -83,6 +85,11 @@ def config_dir() -> Path:
     appdata = os.environ.get("APPDATA")
     if appdata:  # Windows
         return Path(appdata) / APP_NAME
+    if sys.platform == "darwin" and not os.environ.get("XDG_CONFIG_HOME"):
+        # Settings sit with the rest of the app's files in Application Support.
+        from .runtime import mac_support_dir
+
+        return mac_support_dir(Path.home() / ".config" / APP_NAME)
     xdg = os.environ.get("XDG_CONFIG_HOME")
     base = Path(xdg) if xdg else Path.home() / ".config"
     return base / APP_NAME
