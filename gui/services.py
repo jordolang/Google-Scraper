@@ -80,6 +80,9 @@ def make_pipeline(settings: Dict) -> Pipeline:
         "sender_address": settings.get("sender_address") or "",
         "unsubscribe_url": settings.get("unsubscribe_url") or "",
         "send_via": settings.get("send_via") or "smtp",
+        "preview_model": settings.get("preview_model") or "",
+        "image_host_url": settings.get("supabase_url") or "",
+        "image_host_bucket": settings.get("supabase_bucket") or "",
     }
     if settings.get("demo_mode"):
         return DemoPipeline(**kwargs)

@@ -53,6 +53,11 @@ DEFAULTS: Dict[str, Any] = {
     "supabase_bucket": "email-images",
     # The image shown in every email that has no preview of its own.
     "email_image": "",
+    # Website previews drawn by Higgsfield (site_preview.MODELS key; "" =
+    # default), and whether a campaign makes any missing ones before it sends.
+    # The Higgsfield key ID and secret live in the .env.
+    "preview_model": "",
+    "auto_previews": False,
     "reply_to": "",
     "smtp_username": "",
     "smtp_server": "",

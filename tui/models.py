@@ -140,6 +140,7 @@ class Business:
             search_location=str(data.get("search_location", "") or "").strip(),
             phone_source=str(data.get("phone_source", "") or "").strip(),
             email_source=str(data.get("email_source", "") or "").strip(),
+            hero_image=str(data.get("preview_image", "") or "").strip(),
             emails=_split_multi(data.get("email", "")),
             phones=_split_multi(data.get("scraped_phone", "")),
             contact_names=_split_multi(data.get("contact_name", "")),
@@ -169,6 +170,7 @@ class Business:
         row["search_location"] = self.search_location
         row["phone_source"] = self.phone_source
         row["email_source"] = self.email_source
+        row["preview_image"] = self.hero_image
         return row
 
     def to_generator_row(self) -> dict:

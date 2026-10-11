@@ -37,6 +37,7 @@ class SettingsPage(Page):
         layout.addWidget(self._build_sender())
         layout.addWidget(self._build_deliverability())
         layout.addWidget(self._build_images())
+        layout.addWidget(self._build_previews())
         layout.addWidget(self._build_scraping())
         layout.addWidget(self._build_storage())
         layout.addStretch(1)
@@ -163,6 +164,32 @@ class SettingsPage(Page):
             "add on the Outreach page are uploaded here and linked into each email."))
         return card
 
+    def _build_previews(self) -> Card:
+        from site_preview import DEFAULT_MODEL, MODELS
+
+        card = Card("Website Previews")
+        self.hf_key_id = QLineEdit()
+        self.hf_key_id.setPlaceholderText("API key ID")
+        self.hf_key_secret = QLineEdit()
+        self.hf_key_secret.setEchoMode(QLineEdit.Password)
+        self.hf_key_secret.setPlaceholderText("API key secret")
+        self.preview_model = QComboBox()
+        for key, model in MODELS.items():
+            self.preview_model.addItem(model.label, key)
+        self.preview_model.setCurrentIndex(max(0, self.preview_model.findData(DEFAULT_MODEL)))
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(10)
+        grid.addWidget(Field("Higgsfield API Key ID", self.hf_key_id), 0, 0)
+        grid.addWidget(Field("Higgsfield API Key Secret", self.hf_key_secret), 0, 1)
+        grid.addWidget(Field("Image Model", self.preview_model), 1, 0, 1, 2)
+        card.add_layout(grid)
+        card.add(hint(
+            "Draws a screenshot of a new website for each business and puts it at the "
+            "top of its email. Get a key at console.higgsfield.ai → API keys. Each "
+            "image uses Higgsfield credits; previews are kept on your image host."))
+        return card
+
     def _build_scraping(self) -> Card:
         card = Card("Scraping")
         self.headless = checkbox("Run Chrome headless (no visible browser window)", True)
@@ -232,6 +259,11 @@ class SettingsPage(Page):
         self.supabase_url.setText(str(s.get("supabase_url", "")))
         self.supabase_bucket.setText(str(s.get("supabase_bucket", "") or "email-images"))
         self.supabase_key.setText(os.environ.get("SUPABASE_SERVICE_KEY", ""))
+        self.hf_key_id.setText(os.environ.get("HF_API_KEY_ID", ""))
+        self.hf_key_secret.setText(os.environ.get("HF_API_KEY_SECRET", ""))
+        model = self.preview_model.findData(s.get("preview_model", ""))
+        if model >= 0:
+            self.preview_model.setCurrentIndex(model)
 
     def save(self) -> None:
         self.state.password = self.password.text()
@@ -252,11 +284,14 @@ class SettingsPage(Page):
             unsubscribe_url=self.unsubscribe_url.text().strip(),
             supabase_url=self.supabase_url.text().strip().rstrip("/"),
             supabase_bucket=self.supabase_bucket.text().strip() or "email-images",
+            preview_model=self.preview_model.currentData() or "",
         )
         try:
             runtime.save_env_values({
                 "RESEND_API_KEY": self.resend_key.text().strip(),
                 "SUPABASE_SERVICE_KEY": self.supabase_key.text().strip(),
+                "HF_API_KEY_ID": self.hf_key_id.text().strip(),
+                "HF_API_KEY_SECRET": self.hf_key_secret.text().strip(),
             })
         except OSError as exc:
             self.state.log("settings", f"Could not save API keys: {exc}")

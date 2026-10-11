@@ -144,6 +144,13 @@ from), shown in the TUI, and picked up by the call script.
 - Batch email generation with summary reports
 - Professional HTML formatting for direct copy-paste into Gmail
 
+### 🖼️ Website Previews (New)
+- One "here's your new website" image per business, drawn by Higgsfield's image API
+- A fixed prompt per industry, filled with the business's name, category and town
+- Re-hosted on your Supabase bucket so the image still shows months later
+- **Make Previews** on the Email Campaigns tab, or `python site_preview.py contacts.csv`
+- Keys: `HF_API_KEY_ID` / `HF_API_KEY_SECRET` from console.higgsfield.ai → API keys
+
 ### 📤 Automated Email Sender
 - Send generated emails automatically via SMTP
 - Personalized subject lines for each business

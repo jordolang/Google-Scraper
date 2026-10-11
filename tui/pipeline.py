@@ -71,8 +71,17 @@ class Pipeline:
         sender_address: str = "",
         unsubscribe_url: str = "",
         send_via: str = "smtp",
+        preview_model: str = "",
+        image_host_url: str = "",
+        image_host_bucket: str = "",
     ) -> None:
         self.from_email = from_email
+        # Website previews: which Higgsfield model draws them, and the image
+        # host (Supabase Storage) that keeps them online after Higgsfield's
+        # own links expire. Keys come from the environment (the app's .env).
+        self.preview_model = preview_model or ""
+        self.image_host_url = image_host_url or ""
+        self.image_host_bucket = image_host_bucket or ""
         # Who the email is from, the postal address in its footer, where its
         # Unsubscribe link points, and whether it goes out over SMTP or the
         # Resend API ("smtp" | "resend").
@@ -343,6 +352,64 @@ class Pipeline:
         if not filled:
             progress("    ✗ nothing new found")
         return filled
+
+    def make_previews(
+        self,
+        businesses: Sequence[Business],
+        *,
+        redo: bool = False,
+        progress: ProgressFn = _noop,
+        on_event: ScanFn = _noop_event,
+    ) -> int:
+        """Give each business a website preview image; returns how many were made.
+
+        Businesses that already have one keep it unless ``redo``. A missing
+        key or an empty account stops the batch; anything else skips just
+        that business.
+        """
+        targets = [b for b in businesses if redo or not b.hero_image]
+        if not targets:
+            progress("Every business already has a website preview.")
+            return 0
+        maker = self._preview_maker()
+        if not getattr(maker, "hosts_images", True):
+            progress("⚠ No image host is set up, so these preview links expire in "
+                     "7 days. Add Supabase under Settings → Image Hosting to keep them.")
+        from site_preview import PreviewError
+
+        made = 0
+        total = len(targets)
+        try:
+            for idx, business in enumerate(targets, 1):
+                name = business.name or "business"
+                progress(f"[{idx}/{total}] {name}: drawing a website preview…")
+                on_event(ScanEvent(idx, total, name, status="scanning"))
+                try:
+                    url = maker.make(business, industry_key=business.industry_key)
+                except PreviewError as exc:
+                    progress(f"    ⚠ {exc}")
+                    on_event(ScanEvent(idx, total, name, status="error", error=str(exc)))
+                    if any(word in str(exc) for word in ("not set up", "refused", "credits")):
+                        break
+                    continue
+                except Exception as exc:  # noqa: BLE001 - network failures
+                    progress(f"    ⚠ error: {str(exc)[:80]}")
+                    on_event(ScanEvent(idx, total, name, status="error", error=str(exc)[:80]))
+                    continue
+                made += 1
+                progress(f"    🖼 {url}")
+                on_event(ScanEvent(idx, total, name, status="done"))
+        finally:
+            self._safe_export_contacts(businesses, progress)
+        return made
+
+    def _preview_maker(self):
+        from image_host import ImageHost
+        from site_preview import HiggsfieldClient, PreviewMaker
+
+        return PreviewMaker(
+            HiggsfieldClient(model=self.preview_model),
+            ImageHost(url=self.image_host_url, bucket=self.image_host_bucket))
 
     def build_message(
         self,
@@ -728,6 +795,21 @@ class LivePipeline(Pipeline):
         return stats
 
 
+class _DemoPreviewMaker:
+    """Stands in for Higgsfield: a placeholder image named after the business."""
+
+    hosts_images = True
+
+    def make(self, business: Business, *, industry_key: str = "") -> str:
+        from urllib.parse import quote
+
+        time.sleep(0.2)
+        business.hero_image = (
+            "https://placehold.co/1200x675/1e3a8a/ffffff/png?text="
+            + quote(f"{business.name or 'Your Business'} — website preview"))
+        return business.hero_image
+
+
 class DemoPipeline(Pipeline):
     """Offline pipeline returning canned data – lets you tour the whole flow."""
 
@@ -950,6 +1032,9 @@ class DemoPipeline(Pipeline):
                                phones=list(business.phones),
                                emails=list(business.emails)))
         return None
+
+    def _preview_maker(self):
+        return _DemoPreviewMaker()
 
     def _demo_lookup(self, businesses, targets, source, progress, on_event):
         for idx, business in enumerate(targets, 1):

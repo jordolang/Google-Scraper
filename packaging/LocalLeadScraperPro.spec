@@ -74,6 +74,10 @@ hiddenimports = (
         "industries",
         "pricing_store",
         "email_config",
+        "deliverability",
+        "image_host",
+        "site_preview",
+        "requests",
         "tui.pitch_script",
         # Stdlib reached for only when a feature runs: sending, exporting,
         # previewing.

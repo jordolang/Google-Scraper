@@ -36,6 +36,8 @@ LISTING_FIELDS: Sequence[str] = (
     # Pages, BBB, web search, Facebook, Google) when the website gave us
     # nothing; phone_source and email_source say which.
     "email", "contact_name", "scraped_phone", "phone_source", "email_source",
+    # The website preview image made for this business (site_preview.py).
+    "preview_image",
     # Filled in when an outreach email actually goes out.
     "emailed", "emailed_at", "emailed_to", "emailed_subject", "email_template",
 )
@@ -76,6 +78,7 @@ FIELD_LABELS: Mapping[str, str] = {
     "scraped_phone": "Scraped Phone",
     "phone_source": "Phone Source",
     "email_source": "Email Source",
+    "preview_image": "Preview Image",
     "emailed": "Emailed",
     "emailed_at": "Emailed At",
     "emailed_to": "Emailed To",
