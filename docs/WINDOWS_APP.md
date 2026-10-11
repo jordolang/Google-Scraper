@@ -219,7 +219,7 @@ info, scanned, emailed, …), paginate, and export to CSV or Excel.
 
 **Settings** — sending account and SMTP (with a Test Connection button that
 logs in and hangs up without sending), headless/visible Chrome, demo mode,
-export folder, licence text.
+export folder.
 
 **Tools** — look up missing phone numbers on Google and Yellow Pages, edit the
 package prices the emails and scripts quote, and load a previous export back
@@ -242,7 +242,7 @@ Run from a packaged .exe, the app keeps its files under
 | Package prices | `pricing.json` |
 | SMTP password | Nowhere. It lives in memory for the session, or in a `.env` you control. |
 
-App preferences (window settings, last search, licence text) live in
+App preferences (window settings, last search) live in
 `%APPDATA%\LocalLeadScraperPro\settings.json`. Change the export folder on the
 Settings page if you would rather keep the CSVs somewhere else.
 

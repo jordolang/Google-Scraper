@@ -48,9 +48,8 @@ DEFAULTS: Dict[str, Any] = {
     "data_root": "",
 }
 
-# The licence used to live here as two free-text fields ("Pro", "12/31/2025")
-# that the sidebar displayed and nothing enforced. It now lives in a signed
-# file managed by :mod:`licensing`; a stored tier is deliberately ignored.
+# Licence fields from older versions. The app is free now, so they are
+# dropped from settings.json on load.
 RETIRED_KEYS = ("license_tier", "license_expires")
 
 

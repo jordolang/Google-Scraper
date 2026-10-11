@@ -36,7 +36,6 @@ class SettingsPage(Page):
         layout.addWidget(self._build_sender())
         layout.addWidget(self._build_scraping())
         layout.addWidget(self._build_storage())
-        layout.addWidget(self._build_license())
         layout.addStretch(1)
         scroll.setWidget(inner)
         self.root().addWidget(scroll, 1)
@@ -147,36 +146,6 @@ class SettingsPage(Page):
             "Every run files its CSVs under <export folder>/<search term>/<location>/."))
         return card
 
-    def _build_license(self) -> Card:
-        """A read-only summary. The licence itself is not a setting.
-
-        This card used to be two editable boxes whose values went straight into
-        settings.json and straight back out into the sidebar — a tier anyone
-        could type. What a licence says now comes from the signed licence file,
-        so this shows it and sends people to the screen that can change it.
-        """
-        card = Card("Licence")
-        self.license_summary = QLabel("—")
-        self.license_summary.setWordWrap(True)
-        self.license_summary.setStyleSheet("font-size: 12px;")
-        card.add(self.license_summary)
-        open_page = button("Open the Licence screen")
-        open_page.clicked.connect(lambda: self.navigate_requested.emit("license"))
-        line = QHBoxLayout()
-        line.addWidget(open_page)
-        line.addStretch(1)
-        card.add_layout(line)
-        card.add(hint("Activation, plans and seats all live on that screen."))
-        return card
-
-    def _refresh_license(self) -> None:
-        from licensing import get_manager
-
-        manager = get_manager()
-        status = manager.status(refresh=True)
-        notes = "  ".join(f"•  {line}" for line in manager.restrictions())
-        self.license_summary.setText(f"{status.headline()}\n{notes}")
-
     # -- load / save -------------------------------------------------------
     def load(self) -> None:
         s = self.state.settings
@@ -190,7 +159,6 @@ class SettingsPage(Page):
         self.scan_delay.setValue(float(s.get("scan_delay", 1.0)))
         self.max_results.setValue(int(s.get("max_results", 50)))
         self.data_root.setText(str(s.get("data_root", "")))
-        self._refresh_license()
         self.password.setText(self.state.password)
 
     def save(self) -> None:

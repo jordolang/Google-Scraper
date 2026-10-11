@@ -16,7 +16,6 @@ on:
       - "gui/**"
       - "tui/**"
       - "salescall/**"
-      - "licensing/**"
       - "packaging/**"
       - "email_templates/**"
       - "run_gui.py"
@@ -105,36 +104,6 @@ jobs:
         # Bundled so the app needs no browser installed. Browser and driver
         # come from one snapshot revision, so they always match.
         run: python packaging/fetch_chromium.py --platform ${{ matrix.chromium }}
-
-      - name: Embed the licence public key
-        # The key the app verifies licences with. Public by nature — it is safe
-        # in a repository variable and safe inside the .exe — but it has to be
-        # written into the source before PyInstaller runs, because the frozen
-        # app reads the constant, not this runner's environment.
-        #
-        # Deliberately not `keygen`: that would mint a *new* pair on every
-        # build, so each release would trust a different key and every licence
-        # already issued would stop verifying.
-        env:
-          LLSP_LICENSE_PUBKEY: ${{ vars.LLSP_LICENSE_PUBKEY }}
-        run: |
-          if [ -n "$LLSP_LICENSE_PUBKEY" ]; then
-            python -m payments.cli set-public-key "$LLSP_LICENSE_PUBKEY"
-            # Having embedded a key, insist the bundle can actually verify
-            # licences. Recorded here rather than derived from the release tag:
-            # before licensing goes live there is no key to embed, and blocking
-            # every release until someone sets a variable is not a safety
-            # feature, it is an outage.
-            #
-            # The flag travels through GITHUB_ENV, never the key itself —
-            # licensing.public_key reads LLSP_LICENSE_PUBKEY from the
-            # environment too, so exposing it to the self-test would let a
-            # failed embed pass on the runner's environment alone.
-            echo "LLSP_REQUIRE_LICENCE_KEY=1" >> "$GITHUB_ENV"
-          else
-            echo "::notice::LLSP_LICENSE_PUBKEY is not set; building an unsigned"\
-                 "development bundle that cannot verify licences."
-          fi
 
       - name: Build the app bundle
         run: pyinstaller --clean --noconfirm packaging/LocalLeadScraperPro.spec

@@ -18,7 +18,6 @@ from textual.containers import Container
 from textual.screen import ModalScreen
 from textual.widgets import MarkdownViewer, Static
 
-from licensing import console, plans
 
 from .models import Business, EmailMessage
 from .pipeline import Pipeline, make_pipeline
@@ -213,23 +212,7 @@ def main(argv: Optional[List[str]] = None) -> None:
                         help="Run the scraper browser in visible (non-headless) mode.")
     parser.add_argument("--start", choices=["home", "pipeline", "cockpit"], default="home",
                         help="Which screen to open on (default: home).")
-    parser.add_argument("--licence", "--license", dest="licence", nargs="*",
-                        metavar=("COMMAND", "KEY"),
-                        help="Licence admin: status | plans | trial | activate KEY "
-                             "| deactivate. Prints and exits.")
     args = parser.parse_args(argv)
-
-    if args.licence is not None:
-        raise SystemExit(console.run(args.licence))
-
-    # Demo mode is deliberately never gated: it runs on bundled sample data,
-    # touches no browser and sends nothing, so it is the honest way to look
-    # around before paying. A live run is the thing a licence is for.
-    if not args.demo and not console.require(
-            plans.SCRAPE_MAPS, action="Running the outreach pipeline"):
-        print("Tip: python app.py --demo tours the whole flow with sample data.",
-              file=sys.stderr)
-        raise SystemExit(2)
 
     pipeline = make_pipeline(
         demo=args.demo, from_email=args.from_email,
