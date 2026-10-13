@@ -316,7 +316,8 @@ class EmailSender:
             print(f"❌ Error reading {html_file}: {str(e)}")
             return None
     
-    def send_email(self, to_email, subject, html_content, business_name):
+    def send_email(self, to_email, subject, html_content, business_name,
+                   unsubscribe_url=None):
         """
         Send an individual email
         
@@ -325,6 +326,8 @@ class EmailSender:
             subject: Email subject line
             html_content: HTML email content
             business_name: Business name (for logging)
+            unsubscribe_url: This recipient's own unsubscribe link; None uses
+                the sender's shared one.
             
         Returns:
             True if sent successfully, False otherwise
@@ -333,7 +336,8 @@ class EmailSender:
             msg = build_message(
                 from_name=self.from_name, from_email=self.from_email,
                 to_email=to_email, subject=subject, html=html_content,
-                reply_to=self.reply_to, unsubscribe_url=self.unsubscribe_url,
+                reply_to=self.reply_to,
+                unsubscribe_url=self._unsubscribe_for(unsubscribe_url),
             )
             self.smtp_connection.send_message(msg)
             
@@ -347,6 +351,9 @@ class EmailSender:
             self.failed_emails.append((business_name, to_email, str(e)))
             return False
     
+    def _unsubscribe_for(self, unsubscribe_url):
+        return self.unsubscribe_url if unsubscribe_url is None else unsubscribe_url
+
     def send_batch(self, emails_dir="generated_emails", delay=2, dry_run=False, limit=None, skip_list=None):
         """
         Send all emails in the generated_emails directory
@@ -500,7 +507,9 @@ class ResendSender(EmailSender):
             self._session.close()
             self._session = None
 
-    def send_email(self, to_email, subject, html_content, business_name):
+    def send_email(self, to_email, subject, html_content, business_name,
+                   unsubscribe_url=None):
+        unsubscribe_url = self._unsubscribe_for(unsubscribe_url)
         payload = {
             "from": f"{self.from_name} <{self.from_email}>",
             "to": [to_email],
@@ -508,9 +517,9 @@ class ResendSender(EmailSender):
             "html": html_content,
             "text": html_to_text(html_content),
             "headers": {"List-Unsubscribe": unsubscribe_header(
-                self.from_email, self.unsubscribe_url)},
+                self.from_email, unsubscribe_url)},
         }
-        if self.unsubscribe_url.startswith("https://"):
+        if unsubscribe_url.startswith("https://"):
             payload["headers"]["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
         if self.reply_to:
             payload["reply_to"] = self.reply_to

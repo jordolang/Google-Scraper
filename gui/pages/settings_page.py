@@ -117,7 +117,8 @@ class SettingsPage(Page):
         self.sender_address = QLineEdit()
         self.sender_address.setPlaceholderText("123 Main St, Columbus, OH 43215")
         self.unsubscribe_url = QLineEdit()
-        self.unsubscribe_url.setPlaceholderText("Optional https page; blank = reply \"Unsubscribe\"")
+        self.unsubscribe_url.setPlaceholderText(
+            "Only used without Supabase; blank = reply \"Unsubscribe\"")
 
         grid = QGridLayout()
         grid.setHorizontalSpacing(12)
@@ -130,7 +131,9 @@ class SettingsPage(Page):
         card.add_layout(grid)
         card.add(hint(
             "Every email goes out with a plain-text copy, an unsubscribe header and "
-            "a randomised gap between sends. A postal address in the footer is "
+            "a randomised gap between sends. With Supabase set up (Image Hosting), "
+            "each email gets its own one-click unsubscribe link and anyone who "
+            "unsubscribes is skipped automatically. A postal address in the footer is "
             "required for commercial email in the US. API keys are kept in the "
             "app's own .env file, not in settings.json."))
         self.domain_button = button("Check My Domain")

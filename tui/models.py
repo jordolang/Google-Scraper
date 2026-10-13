@@ -240,6 +240,9 @@ class EmailMessage:
     to_email: str
     subject: str
     html: str
+    # This recipient's own unsubscribe link, for the List-Unsubscribe header.
+    # Blank means the sender's shared setting.
+    unsubscribe_url: str = ""
 
     @property
     def label(self) -> str:
