@@ -150,6 +150,7 @@ class EmailCampaigns(QWidget):
 
         self.template = QComboBox()
         self.template.addItem("Auto — match each business's industry", "")
+        self.template.addItem("Auto — industry hero showcase", "@showcase")
         for label, key in services.available_templates():
             self.template.addItem(label, key)
         self.edit_template_button = button("Edit Template…")
@@ -398,7 +399,7 @@ class EmailCampaigns(QWidget):
 
     def _edit_template(self) -> None:
         key = self.template.currentData()
-        if not key:
+        if not key or key.startswith("@"):
             QMessageBox.information(
                 self, "Pick a template",
                 "Choose a specific industry template to edit — “Auto” renders "

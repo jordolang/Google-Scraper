@@ -541,7 +541,7 @@ def save_env_values(values: dict) -> Path:
 
 #: Written into every template the build script produces. A user's copy
 #: without it predates the current design.
-TEMPLATE_MARKER = "<!-- llsp-template: 2 -->"
+TEMPLATE_MARKER = "<!-- llsp-template: 3 -->"
 
 
 def refresh_templates() -> Optional[Path]:
@@ -558,6 +558,10 @@ def refresh_templates() -> Optional[Path]:
     target = app_data_dir() / "email_templates"
     if not source.is_dir() or not target.is_dir():
         return None
+    # Templates added since this install (new industries, new variants).
+    for fresh in source.glob("*.html"):
+        if not (target / fresh.name).exists():
+            shutil.copy2(fresh, target / fresh.name)
     stale = [path for path in target.glob("*.html")
              if TEMPLATE_MARKER not in path.read_text(encoding="utf-8", errors="ignore")]
     if not stale:

@@ -31,6 +31,7 @@ def rooted(*parts):
 # %LOCALAPPDATA%\LocalLeadScraperPro on first launch (see gui/runtime.py).
 datas = [
     (rooted("email_templates"), "email_templates"),
+    (rooted("email_assets"), "email_assets"),
     # The Chrome driver, so nothing has to be downloaded on first use.
     # packaging/fetch_chromedriver.py puts it there before the build.
     (os.path.join(SPEC_DIR, "drivers"), "drivers"),

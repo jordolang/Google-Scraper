@@ -1,6 +1,6 @@
 """Industry registry, classifier, and default pricing for outreach emails.
 
-A single source of truth for the ten business industries Jlang.dev targets (plus
+A single source of truth for the business industries Jlang.dev targets (plus
 a neutral ``general`` fallback). Each :class:`Industry` knows:
 
 * which standalone template file in ``email_templates/`` renders its email,
@@ -48,17 +48,28 @@ class Industry:
 # Order matters: earlier industries win keyword ties. Creative sits before
 # Professional Services so "marketing agency" lands on creative, not consulting.
 REGISTRY: List[Industry] = [
+    # Roofing sits first so a "Roofing contractor" lands here, not on the
+    # broader trades bucket (both would otherwise score on "contractor").
+    Industry(
+        key="roofing",
+        label="Roofing",
+        template_filename="roofing.html",
+        keywords=(
+            "roof", "shingle", "gutter", "siding", "skylight", "storm damage",
+        ),
+        accent="#c2410c",  # burnt orange — terracotta tile
+    ),
     Industry(
         key="home_trade_services",
         label="Home & Trade Services",
         template_filename="home_trade_services.html",
         keywords=(
             "contractor", "plumb", "electric", "hvac", "heating", "cooling",
-            "air conditioning", "roofing", "roofer", "landscap", "lawn",
+            "air conditioning", "landscap", "lawn",
             "construction", "remodel", "renovation", "handyman", "painter",
             "painting", "flooring", "carpet", "fence", "concrete", "masonry",
-            "pest", "garage door", "gutter", "septic", "excavat", "drywall",
-            "insulation", "solar", "deck", "siding", "window", "cleaning service",
+            "pest", "garage door", "septic", "excavat", "drywall",
+            "insulation", "solar", "deck", "window", "cleaning service",
             "junk removal", "tree service", "pool service", "welding",
         ),
         accent="#f59e0b",  # amber — tools / hi-vis
@@ -192,7 +203,7 @@ _BY_KEY: Dict[str, Industry] = {ind.key: ind for ind in _ALL}
 
 
 def all_industries() -> List[Industry]:
-    """Every industry, in dropdown order (the ten targets, then general)."""
+    """Every industry, in dropdown order (the targets, then general)."""
     return list(_ALL)
 
 
