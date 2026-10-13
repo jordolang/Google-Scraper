@@ -16,7 +16,6 @@ on:
       - "gui/**"
       - "tui/**"
       - "salescall/**"
-      - "licensing/**"
       - "packaging/**"
       - "email_templates/**"
       - "run_gui.py"
@@ -29,6 +28,9 @@ on:
       - "industries.py"
       - "pricing_store.py"
       - "email_config.py"
+      - "deliverability.py"
+      - "image_host.py"
+      - "site_preview.py"
       - "email_template.html"
       - "pitch_script.md"
       - "requirements*.txt"
@@ -77,6 +79,7 @@ jobs:
       RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
       BUNDLE: "Local Lead Scraper Pro.app"
       ASSET: LocalLeadScraperPro-macos-${{ matrix.arch }}.zip
+      DMG: LocalLeadScraperPro-macos-${{ matrix.arch }}.dmg
 
     steps:
       - uses: actions/checkout@v4
@@ -105,36 +108,6 @@ jobs:
         # Bundled so the app needs no browser installed. Browser and driver
         # come from one snapshot revision, so they always match.
         run: python packaging/fetch_chromium.py --platform ${{ matrix.chromium }}
-
-      - name: Embed the licence public key
-        # The key the app verifies licences with. Public by nature — it is safe
-        # in a repository variable and safe inside the .exe — but it has to be
-        # written into the source before PyInstaller runs, because the frozen
-        # app reads the constant, not this runner's environment.
-        #
-        # Deliberately not `keygen`: that would mint a *new* pair on every
-        # build, so each release would trust a different key and every licence
-        # already issued would stop verifying.
-        env:
-          LLSP_LICENSE_PUBKEY: ${{ vars.LLSP_LICENSE_PUBKEY }}
-        run: |
-          if [ -n "$LLSP_LICENSE_PUBKEY" ]; then
-            python -m payments.cli set-public-key "$LLSP_LICENSE_PUBKEY"
-            # Having embedded a key, insist the bundle can actually verify
-            # licences. Recorded here rather than derived from the release tag:
-            # before licensing goes live there is no key to embed, and blocking
-            # every release until someone sets a variable is not a safety
-            # feature, it is an outage.
-            #
-            # The flag travels through GITHUB_ENV, never the key itself —
-            # licensing.public_key reads LLSP_LICENSE_PUBKEY from the
-            # environment too, so exposing it to the self-test would let a
-            # failed embed pass on the runner's environment alone.
-            echo "LLSP_REQUIRE_LICENCE_KEY=1" >> "$GITHUB_ENV"
-          else
-            echo "::notice::LLSP_LICENSE_PUBKEY is not set; building an unsigned"\
-                 "development bundle that cannot verify licences."
-          fi
 
       - name: Build the app bundle
         run: pyinstaller --clean --noconfirm packaging/LocalLeadScraperPro.spec
@@ -170,10 +143,22 @@ jobs:
           cd ..
           echo "packed $ASSET ($(du -h "$ASSET" | cut -f1))"
 
+      - name: Make the disk image
+        # The .dmg is what a Mac user downloads: it opens to the app, an
+        # Applications shortcut and the first-launch steps. create-dmg lays
+        # the window out; make_dmg.py falls back to a plain image without it.
+        run: |
+          brew install create-dmg || echo "create-dmg unavailable; plain dmg"
+          python packaging/make_dmg.py "dist/$BUNDLE" "$DMG"
+          hdiutil verify "$DMG"
+          echo "packed $DMG ($(du -h "$DMG" | cut -f1))"
+
       - uses: actions/upload-artifact@v4
         with:
           name: LocalLeadScraperPro-macos-${{ matrix.arch }}
-          path: ${{ env.ASSET }}
+          path: |
+            ${{ env.DMG }}
+            ${{ env.ASSET }}
           if-no-files-found: error
           retention-days: 90
 
@@ -183,7 +168,9 @@ jobs:
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           name: ${{ env.RELEASE_TAG }}
-          files: ${{ env.ASSET }}
+          files: |
+            ${{ env.DMG }}
+            ${{ env.ASSET }}
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

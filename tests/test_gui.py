@@ -978,3 +978,78 @@ def test_icon_is_a_multi_size_ico():
     reserved, kind, count = struct.unpack("<HHH", data[:6])
     assert (reserved, kind) == (0, 1)
     assert count >= 4  # 16px through 256px, so Windows never has to guess
+
+
+def test_api_keys_go_to_the_app_env_not_settings(tmp_path, monkeypatch):
+    from gui import runtime
+
+    monkeypatch.setenv("LLSP_DATA_DIR", str(tmp_path))
+    monkeypatch.delenv("RESEND_API_KEY", raising=False)
+    (tmp_path / ".env").write_text("EMAIL_PASSWORD=keep\nRESEND_API_KEY=old\n")
+    path = runtime.save_env_values({"RESEND_API_KEY": "re_new", "SUPABASE_SERVICE_KEY": ""})
+    assert path.read_text().splitlines() == ["EMAIL_PASSWORD=keep", "RESEND_API_KEY=re_new"]
+    import os
+
+    assert os.environ["RESEND_API_KEY"] == "re_new"
+    monkeypatch.delenv("RESEND_API_KEY")
+
+
+def test_old_templates_are_backed_up_and_replaced(tmp_path, monkeypatch):
+    from gui import runtime
+
+    bundle = tmp_path / "bundle"
+    (bundle / "email_templates").mkdir(parents=True)
+    (bundle / "email_templates" / "general.html").write_text(runtime.TEMPLATE_MARKER + " new")
+    data = tmp_path / "data"
+    (data / "email_templates").mkdir(parents=True)
+    (data / "email_templates" / "general.html").write_text("old dark design")
+    monkeypatch.setenv("LLSP_DATA_DIR", str(data))
+    monkeypatch.setattr(runtime, "frozen", lambda: True)
+    monkeypatch.setattr(runtime, "bundle_dir", lambda: bundle)
+
+    backup = runtime.refresh_templates()
+    assert (backup / "general.html").read_text() == "old dark design"
+    assert runtime.TEMPLATE_MARKER in (data / "email_templates" / "general.html").read_text()
+    assert runtime.refresh_templates() is None  # already current
+
+
+def test_mac_keeps_files_in_application_support_and_moves_old_ones(tmp_path, monkeypatch):
+    """A Mac app's files belong in ~/Library/Application Support; old ones move."""
+    from gui import runtime, settings_store
+
+    monkeypatch.setattr(runtime.Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(runtime.sys, "platform", "darwin")
+    monkeypatch.setattr(settings_store.sys, "platform", "darwin")
+    for name in ("LLSP_DATA_DIR", "LLSP_CONFIG_DIR", "LOCALAPPDATA", "APPDATA",
+                 "XDG_DATA_HOME", "XDG_CONFIG_HOME"):
+        monkeypatch.delenv(name, raising=False)
+    old_data = tmp_path / ".local" / "share" / runtime.APP_NAME
+    (old_data / "data").mkdir(parents=True)
+    (old_data / "data" / "leads.csv").write_text("name\n")
+    old_config = tmp_path / ".config" / runtime.APP_NAME
+    old_config.mkdir(parents=True)
+    (old_config / "settings.json").write_text("{}")
+
+    support = tmp_path / "Library" / "Application Support" / runtime.APP_NAME
+    assert runtime.app_data_dir() == support
+    assert settings_store.config_dir() == support
+    assert (support / "data" / "leads.csv").read_text() == "name\n"
+    assert (support / "settings.json").exists()
+    assert not old_data.exists()
+
+
+def test_dmg_background_renders(tmp_path):
+    """The Mac disk image's window background draws without a Mac."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "make_dmg", Path(__file__).resolve().parent.parent / "packaging" / "make_dmg.py")
+    make_dmg = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(make_dmg)
+    out = make_dmg.render_background(tmp_path / "bg.png")
+    from PySide6.QtGui import QImage
+
+    image = QImage(str(out))
+    assert (image.width(), image.height()) == (make_dmg.WIDTH, make_dmg.HEIGHT)
+    readme = make_dmg.write_readme(tmp_path).read_text()
+    assert "Open Anyway" in readme

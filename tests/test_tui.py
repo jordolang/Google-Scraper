@@ -215,13 +215,15 @@ def test_app_navigates_entire_flow():
             await pilot.click("#compose")
             await pilot.pause()
             assert isinstance(app.screen, CustomizeScreen)
-            assert len(app.recipients) == 3
+            # Three emails from the websites; the other sources fill in the two
+            # the websites did not have.
+            assert len(app.recipients) == 5
 
             # Customize screen builds the messages and advances to Compose.
             await pilot.click("#compose")
             await pilot.pause()
             assert isinstance(app.screen, ComposeScreen)
-            assert len(app.messages) == 3
+            assert len(app.messages) == 5
 
             # Editing subject and switching recipients must persist per message.
             app.screen.query_one("#subject-field").value = "Edited 0"
@@ -558,7 +560,7 @@ def test_build_message_honours_industry_kwarg():
     b = Business(name="Bella Salon", category="Hair salon", address="1 St, Dublin, OH",
                  emails=["bella@example.com"])
     msg = pipeline.build_message(b, industry_key="beauty_personal_care")
-    assert "salons & studios" in msg.html  # rendered the beauty template
+    assert "salons &amp; studios" in msg.html  # rendered the beauty template
 
 
 def test_customize_screen_preselects_industry_and_applies_price_override():

@@ -46,7 +46,7 @@ A comprehensive Python-based toolkit for scraping business information from Goog
   - [The Contacts CSV](#the-contacts-csv)
 - [Data Exports (`data_store.py`)](#-data-exports-data_storepy)
 - [Phone Lookup (`phone_lookup.py`)](#️-phone-lookup-phone_lookuppy)
-- [Licensing & Pricing](#-licensing--pricing)
+- [Free to Use](#-free-to-use)
 - [Versioning](#️-versioning)
 - [Configuration](#-configuration)
 - [Documentation](#-documentation)
@@ -143,6 +143,13 @@ from), shown in the TUI, and picked up by the call script.
 - Automated email personalization using business names
 - Batch email generation with summary reports
 - Professional HTML formatting for direct copy-paste into Gmail
+
+### 🖼️ Website Previews (New)
+- One "here's your new website" image per business, drawn by Higgsfield's image API
+- A fixed prompt per industry, filled with the business's name, category and town
+- Re-hosted on your Supabase bucket so the image still shows months later
+- **Make Previews** on the Email Campaigns tab, or `python site_preview.py contacts.csv`
+- Keys: `HF_API_KEY_ID` / `HF_API_KEY_SECRET` from console.higgsfield.ai → API keys
 
 ### 📤 Automated Email Sender
 - Send generated emails automatically via SMTP
@@ -461,8 +468,8 @@ python -m gui --demo       # tour it with sample data — no Chrome, no SMTP
 | --- | --- |
 | **Download** | [**Releases**](https://github.com/jordolang/Google-Scraper/releases/latest) → `LocalLeadScraperPro.exe`. Every version bump on `main` publishes one. For an unreleased build, GitHub **Actions → Windows App →** newest run → the `LocalLeadScraperPro-windows` artifact. |
 | **What's inside** | Everything: Python, PySide6, Selenium, the scrapers, the templates, **and a Chromium browser with its matching driver**. Nothing to install, nothing downloaded ([how](docs/WINDOWS_APP.md#how-the-browser-rides-along)). |
-| **Builds** | Windows: `LocalLeadScraperPro-x64.exe` (Intel/AMD) and `-arm64.exe` (Snapdragon/ARM). macOS: `LocalLeadScraperPro-macos-apple-silicon.zip` (M1+) and `-macos-intel.zip`. All four are built natively and published on every release. |
-| **First run on a Mac** | The app is unsigned, so right-click → **Open** the first time rather than double-clicking ([why](docs/WINDOWS_APP.md#the-mac-builds)). |
+| **Builds** | Windows: `LocalLeadScraperPro-x64.exe` (Intel/AMD) and `-arm64.exe` (Snapdragon/ARM). macOS: `LocalLeadScraperPro-macos-apple-silicon.dmg` (M1+) and `-macos-intel.dmg`. All four are built natively and published on every release. |
+| **First run on a Mac** | Open the `.dmg` and drag the app to Applications. It's unsigned, so the first time, open it once, then click **Open Anyway** under System Settings → Privacy & Security ([details](docs/WINDOWS_APP.md#the-mac-builds)). |
 | **Build it** | On Windows: `packaging\build_windows.bat` → `dist\LocalLeadScraperPro.exe` |
 | **From source** | `python -m gui` on any OS |
 
@@ -1158,50 +1165,10 @@ In the TUI this is the `g` / `y` action on the contacts screen; it runs against
 every business whose website scan came up empty, and what it finds flows into the
 CSVs (tagged `phone_source`), the list on screen, and the call script.
 
-## 🔑 Licensing & Pricing
+## 🆓 Free to Use
 
-The app is sold two ways, at three tiers, with a 72-hour trial. Full detail in
-**[docs/PRICING.md](docs/PRICING.md)**; the design and the operator runbook are in
-**[docs/LICENSING.md](docs/LICENSING.md)**.
-
-| | Solo | Pro | Agency |
-|---|---|---|---|
-| Monthly | $39 | $89 | $199 |
-| Yearly | $390 | $890 | $1,990 |
-| One-time (never expires, 12 months of updates) | $599 | $1,299 | $2,999 |
-| Machines | 2 | 3 | 10 |
-
-**Subscription** keeps renewing and always has the newest version.
-**Perpetual** is paid once, never expires, and includes twelve months of
-updates — after that it keeps working, it just stops changing.
-
-The **72-hour trial** unlocks every feature; searches cap at 25 results and
-email sending stays in dry-run.
-
-### From the app
-
-The desktop app has a **Licence** screen: activate a key, start the trial, see
-what your plan covers, buy or upgrade, and hand a computer's seat back.
-
-### From the terminal
-
-```bash
-python app.py --licence status       # what this computer is running
-python app.py --licence plans        # the price list
-python app.py --licence trial        # start the free 72 hours
-python app.py --licence activate LLSP-XXXXX-XXXXX-XXXXX-XXXXX
-python app.py --licence deactivate   # free this computer's seat
-```
-
-### How it behaves
-
-- **Offline-first.** Licences are Ed25519-signed and verified on your machine.
-  No network is needed to open the app or to use it — only to activate, and
-  occasionally to re-check.
-- **Never locked out.** An expired or lapsed licence falls back to a read-only
-  Reader mode: everything you already scraped stays readable and exportable.
-- **Seats you control.** Each plan covers several computers, and any of them can
-  release its seat from the Licence screen.
+The app is free. There is no licence key, trial, seat limit or usage cap:
+every feature is on from the first launch, on Mac and Windows.
 
 ## 🏷️ Versioning
 
@@ -1282,8 +1249,6 @@ page_load_timeout = 30  # Seconds to wait for page load
 - **[SALES_CALL_README.md](docs/SALES_CALL_README.md)** - Sales Call Cockpit guide
 - **[EMAIL_GENERATOR_README.md](docs/EMAIL_GENERATOR_README.md)** - Detailed email generator guide
 - **[EMAIL_SENDER_README.md](docs/EMAIL_SENDER_README.md)** - Automated email sending guide
-- **[PRICING.md](docs/PRICING.md)** - What the app costs: two pricing models, three tiers
-- **[LICENSING.md](docs/LICENSING.md)** - How licensing and payments work, and how to run the licence service
 - **[COMPETITIVE_ANALYSIS.md](docs/COMPETITIVE_ANALYSIS.md)** - How this measures up against the market
 - **[PRICING_BREAKDOWN.md](docs/PRICING_BREAKDOWN.md)** - Service pricing structure (what *you* charge clients)
 - **[EXCLUSIVE_OFFERS_GUIDE.md](docs/EXCLUSIVE_OFFERS_GUIDE.md)** - Special offers documentation

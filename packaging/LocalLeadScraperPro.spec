@@ -57,12 +57,6 @@ hiddenimports = (
     collect_submodules("selenium")
     + collect_submodules("bs4")
     + collect_submodules("salescall")
-    # The whole licensing package: gui/licensing_ui.py and the pages import it
-    # eagerly, but licensing.crypto picks its backend at run time and
-    # licensing.machine imports winreg only on Windows — neither is something
-    # static analysis follows reliably. A bundle missing any of it is a bundle
-    # that cannot verify a licence, which means every customer in reader mode.
-    + collect_submodules("licensing")
     + [
         "lxml",
         "lxml.etree",
@@ -80,6 +74,10 @@ hiddenimports = (
         "industries",
         "pricing_store",
         "email_config",
+        "deliverability",
+        "image_host",
+        "site_preview",
+        "requests",
         "tui.pitch_script",
         # Stdlib reached for only when a feature runs: sending, exporting,
         # previewing.
@@ -156,6 +154,10 @@ if MACOS:
                  if os.path.exists(rooted("VERSION")) else "0.0"),
         info_plist={
             "NSHighResolutionCapable": True,
+            "CFBundleDisplayName": "Local Lead Scraper Pro",
+            # PySide6 6.6+ and the bundled Chromium both need Big Sur or later.
+            "LSMinimumSystemVersion": "11.0",
+            "NSRequiresAquaSystemAppearance": False,
             # The app drives its own bundled Chromium and writes CSVs under
             # ~/Library; it never needs the camera, mic or contacts.
             "LSApplicationCategoryType": "public.app-category.business",

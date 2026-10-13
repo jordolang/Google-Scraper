@@ -48,6 +48,7 @@ chromedriver.exe
 # Output Files (keep structure, ignore content)
 *.csv
 *.json
+!scripts/email_template_content.json
 *.html
 *.pdf
 !email_template.html

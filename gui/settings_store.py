@@ -1,18 +1,21 @@
 """Persisted user preferences for the desktop app.
 
 Settings live next to the user's other application data — on Windows that is
-``%APPDATA%\\LocalLeadScraperPro\\settings.json`` — so a packaged .exe never
-has to write inside Program Files.
+``%APPDATA%\\LocalLeadScraperPro\\settings.json``, and on a Mac
+``~/Library/Application Support/LocalLeadScraperPro/settings.json`` — so a
+packaged app never has to write inside its own install folder.
 
 Nothing secret is stored here. The SMTP password is read from the environment
 (or a ``.env`` file) and otherwise only ever held in memory for the lifetime of
-the window; see :mod:`gui.state`.
+the window; see :mod:`gui.state`. API keys (Resend, Supabase) go in the app's
+own ``.env`` via :func:`gui.runtime.save_env_values`.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any, Dict
@@ -29,6 +32,9 @@ DEFAULTS: Dict[str, Any] = {
     "headless": True,
     "demo_mode": False,
     "scan_delay": 1.0,
+    # After the website scan, look up missing phones and emails on Yellow
+    # Pages, the BBB, web search and Facebook.
+    "auto_fill_contacts": True,
     "data_categories": [
         "Business Info", "Contact Info", "Services", "About Us",
         "Reviews/Testimonials", "Social Media Links", "Images",
@@ -36,6 +42,24 @@ DEFAULTS: Dict[str, Any] = {
     ],
     # -- outreach -------------------------------------------------------
     "from_email": "jordan@jlang.dev",
+    "sender_name": "Jordan Lang",
+    # Printed in every email's footer; US law (CAN-SPAM) expects a postal
+    # address in commercial email.
+    "sender_address": "",
+    # An https page that unsubscribes people; blank = reply "Unsubscribe".
+    "unsubscribe_url": "",
+    # "smtp" or "resend". The Resend API key lives in the app's .env.
+    "send_via": "smtp",
+    # Supabase Storage for email images. The service key lives in the .env.
+    "supabase_url": "",
+    "supabase_bucket": "email-images",
+    # The image shown in every email that has no preview of its own.
+    "email_image": "",
+    # Website previews drawn by Higgsfield (site_preview.MODELS key; "" =
+    # default), and whether a campaign makes any missing ones before it sends.
+    # The Higgsfield key ID and secret live in the .env.
+    "preview_model": "",
+    "auto_previews": False,
     "reply_to": "",
     "smtp_username": "",
     "smtp_server": "",
@@ -48,9 +72,8 @@ DEFAULTS: Dict[str, Any] = {
     "data_root": "",
 }
 
-# The licence used to live here as two free-text fields ("Pro", "12/31/2025")
-# that the sidebar displayed and nothing enforced. It now lives in a signed
-# file managed by :mod:`licensing`; a stored tier is deliberately ignored.
+# Licence fields from older versions. The app is free now, so they are
+# dropped from settings.json on load.
 RETIRED_KEYS = ("license_tier", "license_expires")
 
 
@@ -62,6 +85,11 @@ def config_dir() -> Path:
     appdata = os.environ.get("APPDATA")
     if appdata:  # Windows
         return Path(appdata) / APP_NAME
+    if sys.platform == "darwin" and not os.environ.get("XDG_CONFIG_HOME"):
+        # Settings sit with the rest of the app's files in Application Support.
+        from .runtime import mac_support_dir
+
+        return mac_support_dir(Path.home() / ".config" / APP_NAME)
     xdg = os.environ.get("XDG_CONFIG_HOME")
     base = Path(xdg) if xdg else Path.home() / ".config"
     return base / APP_NAME

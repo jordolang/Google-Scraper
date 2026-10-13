@@ -5,6 +5,7 @@ Generates personalized HTML emails from contact_details CSV files
 """
 
 import csv
+import html as html_lib
 import os
 import re
 from pathlib import Path
@@ -18,15 +19,41 @@ import pricing_store
 # Default directory holding the per-industry templates.
 TEMPLATES_DIR = "email_templates"
 
-# Substituted for {{HERO_IMAGE}} when no hero URL is supplied. A transparent 1x1
-# GIF keeps email clients from firing a request at a literal empty URL while the
-# industry gradient shows through underneath.
+# Substituted for {{HERO_IMAGE}} when no hero URL is supplied and the template
+# has no <!--IF:HERO_IMAGE--> block to drop instead (older, user-edited
+# templates). A transparent 1x1 GIF keeps clients from requesting an empty URL.
 _TRANSPARENT_PX = "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=="
+
+# Category words that stay capitalised mid-sentence.
+_PROPER_FIRST_WORDS = {
+    "american", "asian", "brazilian", "cajun", "caribbean", "chinese", "cuban",
+    "ethiopian", "filipino", "french", "german", "greek", "hawaiian", "indian",
+    "irish", "italian", "jamaican", "japanese", "korean", "latin", "lebanese",
+    "mediterranean", "mexican", "middle", "peruvian", "polish", "spanish",
+    "southern", "tex-mex", "thai", "turkish", "vietnamese", "christian",
+    "catholic", "baptist",
+}
+
+_CONDITIONAL = re.compile(r"<!--IF:([A-Z_]+)-->(.*?)<!--ENDIF:\1-->\n?", re.S)
+
+
+def apply_conditionals(html, values):
+    """Keep ``<!--IF:NAME-->`` blocks whose ``values[NAME]`` is set; drop the rest."""
+    return _CONDITIONAL.sub(
+        lambda m: m.group(2) if values.get(m.group(1)) else "", html)
+
+
+def unsubscribe_link(from_email, url=""):
+    """Where the footer's Unsubscribe link points: a page if set, else a reply."""
+    if url:
+        return url
+    return f"mailto:{from_email}?subject=Unsubscribe"
 
 
 class EmailGenerator:
     def __init__(self, template_path=None, output_dir="generated_emails",
-                 from_email="jordan@jlang.dev", templates_dir=TEMPLATES_DIR):
+                 from_email="jordan@jlang.dev", templates_dir=TEMPLATES_DIR,
+                 sender_name="Jordan Lang", sender_address="", unsubscribe_url=""):
         """
         Initialize the email generator
 
@@ -45,10 +72,18 @@ class EmailGenerator:
             output_dir: Directory to save generated emails
             from_email: Sender email address
             templates_dir: Directory of per-industry templates (per-industry mode)
+            sender_name: Name the signature signs off with.
+            sender_address: Postal address for the footer. US law (CAN-SPAM)
+                expects one in commercial email; the line is left out when blank.
+            unsubscribe_url: A page that unsubscribes; blank means a mailto
+                link that asks the recipient to reply "Unsubscribe".
         """
         self.template_path = template_path
         self.output_dir = output_dir
         self.from_email = from_email
+        self.sender_name = sender_name or "Jordan Lang"
+        self.sender_address = sender_address or ""
+        self.unsubscribe_url = unsubscribe_url or ""
         self.templates_dir = templates_dir
         self._template_cache = {}
 
@@ -150,32 +185,24 @@ class EmailGenerator:
             return False
     
     def generate_website_note(self, website):
-        """Generate note about current website status"""
-        # Dark-themed to match the industry templates. Kept neutral (no industry
-        # accent) so it reads well inside every template.
+        """A short, neutral note about the business's current website."""
         if self.has_website(website):
-            return """
-            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#141418;border:1px solid #27272a;border-left:3px solid #f59e0b;border-radius:10px;">
-              <tr><td style="padding:16px 18px;">
-                <div style="font-size:15px;font-weight:700;color:#fafafa;padding-bottom:6px;">💡 Already have a website?</div>
-                <div style="font-size:14px;line-height:1.65;color:#a1a1aa;">
-                  I noticed you have one already. I can modernize it — sharper design, faster load times, stronger SEO and features that turn more visitors into customers.
-                </div>
-              </td></tr>
-            </table>
-            """
+            title = "You already have a site, and I can make it work harder."
+            body = ("A sharper design, faster load times and clearer calls to "
+                    "action usually mean more of your visitors pick up the phone.")
         else:
-            return """
-            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#141418;border:1px solid #27272a;border-left:3px solid #38bdf8;border-radius:10px;">
+            title = "I couldn't find a website for you."
+            body = ("Most customers look a business up before they call. A simple, "
+                    "professional site makes sure they find you, not a competitor.")
+        return f"""
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;">
               <tr><td style="padding:16px 18px;">
-                <div style="font-size:15px;font-weight:700;color:#fafafa;padding-bottom:6px;">🌐 Ready for your first website?</div>
-                <div style="font-size:14px;line-height:1.65;color:#a1a1aa;">
-                  It looks like you don't have one yet. Businesses with a professional web presence see up to 70% more customer engagement — let's change that.
-                </div>
+                <div style="font-size:15px;font-weight:700;color:#111827;padding-bottom:4px;">{title}</div>
+                <div style="font-size:14px;line-height:1.65;color:#4b5563;">{body}</div>
               </td></tr>
             </table>
             """
-    
+
     def generate_email(self, business_data, *, industry_key=None, pricing=None,
                        hero_image=""):
         """
@@ -197,6 +224,13 @@ class EmailGenerator:
         business_name = self.clean_text(business_data.get('name', 'Business Owner'))
         email = self.clean_text(business_data.get('email', '')).split(',')[0].strip()  # Get first email if multiple
         category = self.clean_text(business_data.get('category', 'services'))
+        # Maps capitalises categories ("Electrician"); mid-sentence they read
+        # better lower-cased. Acronyms ("HVAC contractor") and cuisines
+        # ("Mexican restaurant") keep their capital.
+        first = category.split(' ', 1)[0].lower()
+        if (len(category) > 1 and category[0].isupper() and category[1].islower()
+                and first not in _PROPER_FIRST_WORDS):
+            category = category[0].lower() + category[1:]
         address = self.clean_text(business_data.get('address', ''))
         website = self.clean_text(business_data.get('website', ''))
         rating = self.clean_text(business_data.get('rating', ''))
@@ -212,24 +246,26 @@ class EmailGenerator:
         # Generate conditional content
         website_note = self.generate_website_note(website)
         
+        # Everything below lands inside HTML; a business called "Smith & Sons"
+        # must not break the markup (or inject any).
+        esc = lambda value: html_lib.escape(str(value or ''), quote=True)  # noqa: E731
+
         # Rating info
         rating_info = ''
         if rating:
             try:
                 rating_float = float(rating)
-                if rating_float >= 4.0:
-                    rating_info = f'<p><strong>⭐ Rating:</strong> {rating}/5.0 - Your excellent reputation shows quality service!</p>'
-                else:
-                    rating_info = f'<p><strong>⭐ Rating:</strong> {rating}/5.0</p>'
-            except:
+                rating_info = f'<div>Rated {esc(rating)}/5 on Google'
+                rating_info += ', a reputation worth showing off.</div>' if rating_float >= 4.0 else '.</div>'
+            except ValueError:
                 pass
-        
+
         # Contact info
         contact_info = ''
         if phone:
-            contact_info += f'<p><strong>📞 Phone:</strong> {phone}</p>'
+            contact_info += f'<div>Phone: {esc(phone)}</div>'
         if email and '@' in email:
-            contact_info += f'<p><strong>✉️ Email:</strong> {email}</p>'
+            contact_info += f'<div>Email: {esc(email)}</div>'
         
         # Choose the template. Legacy mode (an explicit template_path) always
         # uses the single loaded template; otherwise pick per-industry.
@@ -240,16 +276,24 @@ class EmailGenerator:
             resolved_industry = industry_key or self.industry_for(business_data)
             email_html = self._load_industry_template(resolved_industry)
 
+        email_html = apply_conditionals(email_html, {
+            'HERO_IMAGE': hero_image,
+            'SENDER_ADDRESS': self.sender_address,
+        })
+
         replacements = {
-            '{{BUSINESS_NAME}}': business_name,
-            '{{CATEGORY}}': category,
-            '{{LOCATION}}': location,
-            '{{ADDRESS}}': address if address else 'Your Location',
+            '{{BUSINESS_NAME}}': esc(business_name),
+            '{{CATEGORY}}': esc(category),
+            '{{LOCATION}}': esc(location),
+            '{{ADDRESS}}': esc(address) if address else 'Your Location',
             '{{CURRENT_WEBSITE_NOTE}}': website_note,
             '{{RATING_INFO}}': rating_info,
             '{{CONTACT_INFO}}': contact_info,
-            '{{FROM_EMAIL}}': self.from_email,
-            '{{HERO_IMAGE}}': hero_image or _TRANSPARENT_PX,
+            '{{FROM_EMAIL}}': esc(self.from_email),
+            '{{HERO_IMAGE}}': esc(hero_image) if hero_image else _TRANSPARENT_PX,
+            '{{SENDER_NAME}}': esc(self.sender_name),
+            '{{SENDER_ADDRESS}}': esc(self.sender_address),
+            '{{UNSUBSCRIBE_URL}}': esc(unsubscribe_link(self.from_email, self.unsubscribe_url)),
         }
 
         # Pricing tokens: an explicit override wins, else the industry's stored
@@ -431,20 +475,5 @@ def main():
     print("\n✨ Done! Check the generated_emails folder for your personalized emails.")
 
 
-def _check_licence() -> None:
-    """Refuse to run unlicensed, with a message rather than a traceback.
-
-    Running the module directly is a supported way to use this app, so it is
-    gated exactly like the desktop screens are. The check hangs off the
-    ``__main__`` guard rather than off ``main`` itself, because importing this
-    module — which the tests, the TUI and the GUI all do — must never depend
-    on a licence.
-    """
-    from licensing import console, plans
-
-    console.require_or_exit(plans.EMAIL_COMPOSE, action="Generating emails")
-
-
 if __name__ == "__main__":
-    _check_licence()
     main()

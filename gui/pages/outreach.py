@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import tempfile
 from datetime import datetime
 from pathlib import Path
@@ -15,20 +16,18 @@ from PySide6.QtWidgets import (
     QTabWidget, QTextBrowser, QVBoxLayout, QWidget,
 )
 
-from licensing import get_manager, plans
 
 from .. import services, theme
-from ..licensing_ui import require
 from ..scripts import ObjectionCard, ScriptStep, objection_cards, script_steps
 from ..state import AppState, Lead
 from ..widgets.common import (
-    Card, DataTable, Field, KeyValueRow, LogView, Stat, button, hint, h_line,
+    Card, DataTable, Field, KeyValueRow, LogView, Stat, button, checkbox, hint, h_line,
     progress_bar, section_heading, title,
 )
 from ..workers import JobRunner
 from . import Page
 
-SEND_METHODS = ["SMTP (send for real)", "Dry run (compose only, nothing sent)"]
+SEND_METHODS = ["Send for real", "Dry run (compose only, nothing sent)"]
 CALL_OUTCOMES = ["Interested — follow up", "Not interested", "Voicemail",
                  "Wrong number", "Call back later", "Won the job"]
 
@@ -156,6 +155,23 @@ class EmailCampaigns(QWidget):
         self.edit_template_button = button("Edit Template…")
         self.edit_template_button.clicked.connect(self._edit_template)
 
+        self.email_image = QLineEdit(str(settings.get("email_image", "")))
+        self.email_image.setPlaceholderText("https://… or upload one")
+        self.email_image.setToolTip(
+            "Shown near the top of every email that has no website preview of its "
+            "own. Must be a public https address; Upload puts a file on your "
+            "image host and fills this in.")
+        self.upload_image_button = button("Upload Image…")
+        self.upload_image_button.clicked.connect(self._upload_image)
+
+        self.auto_previews = checkbox(
+            "Make a website preview for each business before sending",
+            bool(settings.get("auto_previews", False)))
+        self.auto_previews.setToolTip(
+            "Uses Higgsfield to draw a screenshot of a new website for each "
+            "business that has no preview yet, and puts it at the top of its "
+            "email. Set up under Settings → Website Previews.")
+
         self.send_method = QComboBox()
         self.send_method.addItems(SEND_METHODS)
         self.send_method.setCurrentIndex(1 if settings.get("dry_run", True) else 0)
@@ -181,6 +197,14 @@ class EmailCampaigns(QWidget):
         ):
             card.add(Field(label, widget))
         card.add(self.edit_template_button)
+        image_row = QHBoxLayout()
+        image_row.addWidget(Field("Email Image", self.email_image), 1)
+        image_column = QVBoxLayout()
+        image_column.addSpacing(15)
+        image_column.addWidget(self.upload_image_button)
+        image_row.addLayout(image_column)
+        card.add_layout(image_row)
+        card.add(self.auto_previews)
         card.add(h_line())
         card.add(section_heading("Send Options"))
         for label, widget in (
@@ -203,7 +227,7 @@ class EmailCampaigns(QWidget):
         card.add(self.recipient_count)
 
         self.table = DataTable(
-            ["Business Name", "Email", "Contact", "Website", "Industry"],
+            ["Business Name", "Email", "Contact", "Website", "Industry", "Preview"],
             checkable=True, stretch_column=3)
         self.table.selection_toggled.connect(self._sync_selection)
         card.add(self.table, 1)
@@ -212,12 +236,16 @@ class EmailCampaigns(QWidget):
         self.select_all_button = button("Select All")
         self.select_none_button = button("Select None")
         self.import_button = button("Import Leads…")
+        self.previews_button = button("🖼  Make Previews")
+        self.previews_button.setToolTip(
+            "Draw a website preview for each selected business that has none yet.")
         self.send_button = button("✉  Send Emails", "Primary")
         self.stop_button = button("■  Stop", "Danger")
         self.stop_button.setEnabled(False)
         self.select_all_button.clicked.connect(lambda: self._set_all(True))
         self.select_none_button.clicked.connect(lambda: self._set_all(False))
         self.import_button.clicked.connect(self.import_leads)
+        self.previews_button.clicked.connect(self.make_previews)
         self.send_button.clicked.connect(self.send)
         self.stop_button.clicked.connect(lambda: self.runner.stop())
 
@@ -225,7 +253,8 @@ class EmailCampaigns(QWidget):
         controls.addWidget(self.total_label)
         controls.addStretch(1)
         for widget in (self.select_all_button, self.select_none_button,
-                       self.import_button, self.send_button, self.stop_button):
+                       self.import_button, self.previews_button, self.send_button,
+                       self.stop_button):
             controls.addWidget(widget)
         card.add_layout(controls)
 
@@ -262,7 +291,7 @@ class EmailCampaigns(QWidget):
         for lead in pool:
             b = lead.business
             rows.append([b.name, b.primary_email, ", ".join(b.contact_names),
-                         b.website, lead.industry])
+                         b.website, lead.industry, "✓" if b.hero_image else ""])
         self.table.set_rows(rows, checked=[lead.selected for lead in pool])
         for index, lead in enumerate(pool):
             if lead.business.emailed:
@@ -271,6 +300,7 @@ class EmailCampaigns(QWidget):
         self.recipient_count.setText(f"{len(chosen)} selected")
         self.total_label.setText(f"Total Leads: {len(pool)}")
         self.send_button.setEnabled(bool(chosen) and not self.runner.running)
+        self.previews_button.setEnabled(bool(chosen) and not self.runner.running)
         self.preview_button.setEnabled(bool(chosen))
         for key, value in self.state.campaign_stats.items():
             if key in self.stat_widgets and self.stat_widgets[key].value.text() != "—":
@@ -298,11 +328,54 @@ class EmailCampaigns(QWidget):
             email_delay=float(self.delay.value()),
             daily_limit=int(self.daily_limit.value()),
             dry_run=self.send_method.currentIndex() == 1,
+            email_image=self.email_image.text().strip(),
+            auto_previews=self.auto_previews.isChecked(),
         )
+
+    def _upload_image(self) -> None:
+        """Pick an image, put it on the image host, and use its public URL."""
+        from PySide6.QtWidgets import QFileDialog
+
+        from image_host import ImageHost, ImageHostError
+
+        path, _filter = QFileDialog.getOpenFileName(
+            self, "Choose an image for your emails", str(Path.home()),
+            "Images (*.png *.jpg *.jpeg *.gif *.webp)")
+        if not path:
+            return
+        services.runtime.load_env()
+        settings = self.state.settings
+        host = ImageHost(url=settings.get("supabase_url", ""),
+                         bucket=settings.get("supabase_bucket", ""))
+        if not host.configured():
+            QMessageBox.information(
+                self, "Set up image hosting first",
+                "Emails can only show images that live at a public web address.\n\n"
+                "Add your Supabase project URL, bucket and service key under "
+                "Settings → Image Hosting, then upload again.")
+            return
+        self.upload_image_button.setEnabled(False)
+        self.upload_image_button.setText("Uploading…")
+        try:
+            url = host.upload_file(path)
+        except (ImageHostError, OSError) as exc:
+            QMessageBox.critical(self, "Upload failed", str(exc))
+            return
+        except Exception as exc:  # noqa: BLE001 - network errors, mostly
+            QMessageBox.critical(self, "Upload failed",
+                                 f"{exc}\n\nCheck your internet connection.")
+            return
+        finally:
+            self.upload_image_button.setEnabled(True)
+            self.upload_image_button.setText("Upload Image…")
+        self.email_image.setText(url)
+        self._save_settings()
+        self.state.log("email", f"Uploaded {Path(path).name} → {url}")
 
     def _build_message(self, lead: Lead, pipeline):
         message = pipeline.build_message(
-            lead.business, industry_key=self.template.currentData() or None)
+            lead.business, industry_key=self.template.currentData() or None,
+            hero_image=lead.business.hero_image or self.email_image.text().strip())
         subject = self.subject.text().strip()
         if subject:
             message.subject = subject.replace("{business}", lead.business.name)
@@ -363,42 +436,52 @@ class EmailCampaigns(QWidget):
             f"Added {len(added)} new lead(s) from {Path(path).name}\n"
             f"({len(businesses) - len(added)} were already in the list).")
 
+    def _previews_ready(self) -> bool:
+        """True when Higgsfield keys are saved (or in demo mode); else explain."""
+        services.runtime.load_env()
+        if self.state.settings.get("demo_mode") or (
+                os.environ.get("HF_API_KEY_ID") and os.environ.get("HF_API_KEY_SECRET")):
+            return True
+        QMessageBox.information(
+            self, "Set up website previews first",
+            "Website previews are drawn by Higgsfield.\n\n"
+            "Add your Higgsfield API key ID and secret under Settings → Website "
+            "Previews (get them at console.higgsfield.ai → API keys), then try again.")
+        return False
+
+    def make_previews(self) -> None:
+        if self.runner.running:
+            return
+        chosen = self.chosen()
+        missing = [lead.business for lead in chosen if not lead.business.hero_image]
+        if not missing:
+            QMessageBox.information(self, "Previews",
+                                    "Every selected business already has a preview.")
+            return
+        if not self._previews_ready():
+            return
+        self._save_settings()
+        pipeline = self.state.make_pipeline()
+        self._set_running(True)
+        self.progress.setRange(0, len(missing))
+        self.progress.setValue(0)
+        self.progress.setVisible(True)
+        self.state.set_status("Drawing website previews…")
+        self.state.log("email", f"Making website previews for {len(missing)} business(es)")
+
+        def job(progress, on_event):
+            return {"previews": pipeline.make_previews(missing, progress=progress)}
+
+        self.runner.start(job)
+
     def send(self) -> None:
         if self.runner.running:
             return
         chosen = self.chosen()
         if not chosen:
             return
-        if not require(self, plans.EMAIL_COMPOSE, action="Composing emails"):
-            return
         self._save_settings()
         dry_run = self.send_method.currentIndex() == 1
-        manager = get_manager()
-
-        # A live send needs the feature *and* room left in today's allowance.
-        # A dry run needs neither: seeing what would go out is part of
-        # deciding whether to buy.
-        if not dry_run:
-            if not require(self, plans.EMAIL_SEND, action="Sending email"):
-                return
-            remaining = manager.emails_remaining_today()
-            if remaining <= 0:
-                QMessageBox.information(
-                    self, "Daily limit reached",
-                    f"Your licence covers "
-                    f"{manager.limits().max_emails_per_day} emails a day and "
-                    "today's are used up.\n\nThe count resets at midnight. "
-                    "Dry runs are never counted.")
-                return
-            if len(chosen) > remaining:
-                answer = QMessageBox.question(
-                    self, "Over today's allowance",
-                    f"{len(chosen)} recipients selected, {remaining} left on "
-                    f"today's licence allowance.\n\nSend the first "
-                    f"{remaining} now?")
-                if answer != QMessageBox.Yes:
-                    return
-                chosen = chosen[:remaining]
 
         limit = int(self.daily_limit.value())
         if len(chosen) > limit:
@@ -411,8 +494,19 @@ class EmailCampaigns(QWidget):
             chosen = chosen[:limit]
 
         password = ""
+        resend = self.state.settings.get("send_via") == "resend"
+        if not dry_run and resend:
+            services.runtime.load_env()
+            password = os.environ.get("RESEND_API_KEY", "")
+            if not password:
+                QMessageBox.warning(
+                    self, "No Resend API key",
+                    "Sending is set to Resend, but no API key is saved. Add it "
+                    "under Settings → Deliverability, or switch Send With back "
+                    "to your email account.")
+                return
         if not dry_run:
-            password = self.state.password
+            password = password or self.state.password
             if not password:
                 password, ok = QInputDialog.getText(
                     self, "SMTP password",
@@ -429,12 +523,20 @@ class EmailCampaigns(QWidget):
             if confirm != QMessageBox.Yes:
                 return
 
+        need_previews = [lead.business for lead in chosen if not lead.business.hero_image]
+        if not self.auto_previews.isChecked():
+            need_previews = []
+        elif need_previews and not self._previews_ready():
+            return
+
         pipeline = self.state.make_pipeline()
         delay = float(self.delay.value())
         self._set_running(True)
         # Two passes emit "[i/n]" lines — composing, then sending — so the bar
         # spans both instead of filling up before a single email goes out.
-        self.progress.setRange(0, len(chosen) * (1 if dry_run else 2))
+        # Drawing previews first adds a third.
+        self.progress.setRange(
+            0, len(chosen) * (1 if dry_run else 2) + len(need_previews))
         self.progress.setValue(0)
         self.progress.setVisible(True)
         self.state.set_status("Sending…")
@@ -446,22 +548,20 @@ class EmailCampaigns(QWidget):
         build = self._build_message
 
         def job(progress, on_event):
+            if need_previews:
+                pipeline.make_previews(need_previews, progress=progress)
             messages = []
             for index, lead in enumerate(chosen, 1):
                 progress(f"[{index}/{len(chosen)}] composing for {lead.business.name}…")
                 messages.append(build(lead, pipeline))
-            result = pipeline.send(messages, password=password, delay=delay,
-                                   dry_run=dry_run, progress=progress)
-            if not dry_run:
-                # Counted after the fact, from what the sender reports, so a
-                # run that stops halfway does not spend the whole allowance.
-                get_manager().record_emails_sent(_sent_count(result, len(messages)))
-            return result
+            return pipeline.send(messages, password=password, delay=delay,
+                                 dry_run=dry_run, progress=progress)
 
         self.runner.start(job)
 
     def _set_running(self, running: bool) -> None:
         self.send_button.setEnabled(not running and bool(self.chosen()))
+        self.previews_button.setEnabled(not running and bool(self.chosen()))
         self.stop_button.setEnabled(running)
         self.import_button.setEnabled(not running)
         if not running:
@@ -475,6 +575,15 @@ class EmailCampaigns(QWidget):
 
     def _on_finished(self, stats) -> None:
         if not isinstance(stats, dict):
+            return
+        if "previews" in stats:
+            made = int(stats["previews"])
+            self.refresh()
+            self.state.leads_changed.emit()
+            self.state.log("email", f"Made {made} website preview(s).")
+            QMessageBox.information(
+                self, "Previews ready",
+                f"Made {made} website preview(s). Preview Email shows the first one.")
             return
         sent = int(stats.get("sent", 0))
         self.state.campaign_stats["sent"] += sent
@@ -808,20 +917,3 @@ class OutreachPage(Page):
     def on_close(self) -> None:
         self.campaigns.on_close()
 
-
-def _sent_count(result, fallback: int) -> int:
-    """How many emails a send actually delivered.
-
-    ``Pipeline.send`` has returned a few shapes over time; anything unexpected
-    falls back to "all of them", which errs towards charging the customer's own
-    allowance rather than letting the cap be bypassed by a changed return type.
-    """
-    if isinstance(result, dict):
-        for name in ("sent", "delivered", "succeeded"):
-            if isinstance(result.get(name), int):
-                return int(result[name])
-    if isinstance(result, int):
-        return result
-    if isinstance(result, (list, tuple)):
-        return len(result)
-    return fallback

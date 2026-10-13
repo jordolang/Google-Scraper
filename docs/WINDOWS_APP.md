@@ -108,20 +108,28 @@ cross-compiles. PySide6 ships a `universal2` wheel, so the Python side is
 identical between them; what differs is the machine and the Chromium build
 that goes with it (`Mac` and `Mac_Arm` snapshots respectively).
 
-Releases carry them zipped, since a `.app` is a directory and a release asset
-is a single file:
+Releases carry each one as a disk image, plus a zip of the same bundle:
 
 | File | For |
 | --- | --- |
-| `LocalLeadScraperPro-macos-apple-silicon.zip` | M1 and later |
-| `LocalLeadScraperPro-macos-intel.zip` | Intel Macs |
+| `LocalLeadScraperPro-macos-apple-silicon.dmg` | M1 and later |
+| `LocalLeadScraperPro-macos-intel.dmg` | Intel Macs |
 
-Unzip, drag **Local Lead Scraper Pro** to Applications, and the first launch
-needs one extra step: the app is not signed with an Apple Developer
-certificate, so Gatekeeper refuses a plain double-click with "cannot be opened
-because the developer cannot be verified". **Right-click the app → Open →
-Open** once, and macOS remembers the choice. From the terminal the equivalent
-is:
+The `.dmg` opens to the app, an Applications shortcut and an arrow between
+them (`packaging/make_dmg.py`, laid out by `create-dmg`). Drag the app across
+to install. Settings, exports and edited templates live in
+`~/Library/Application Support/LocalLeadScraperPro`; anything an earlier build
+left in `~/.local/share` or `~/.config` moves there on first launch.
+
+The first launch needs one extra step, because the app isn't signed with an
+Apple Developer certificate. On macOS 15 and later:
+
+1. Open the app from Applications. macOS says it can't check it; click **Done**.
+2. Open **System Settings → Privacy & Security**, scroll down, and click
+   **Open Anyway** next to Local Lead Scraper Pro. Confirm with your password.
+
+On macOS 14 and earlier, **right-click the app → Open → Open** does the same.
+macOS remembers the choice either way. From the terminal the equivalent is:
 
     xattr -dr com.apple.quarantine "/Applications/Local Lead Scraper Pro.app"
 
@@ -219,7 +227,7 @@ info, scanned, emailed, …), paginate, and export to CSV or Excel.
 
 **Settings** — sending account and SMTP (with a Test Connection button that
 logs in and hangs up without sending), headless/visible Chrome, demo mode,
-export folder, licence text.
+export folder.
 
 **Tools** — look up missing phone numbers on Google and Yellow Pages, edit the
 package prices the emails and scripts quote, and load a previous export back
@@ -242,7 +250,7 @@ Run from a packaged .exe, the app keeps its files under
 | Package prices | `pricing.json` |
 | SMTP password | Nowhere. It lives in memory for the session, or in a `.env` you control. |
 
-App preferences (window settings, last search, licence text) live in
+App preferences (window settings, last search) live in
 `%APPDATA%\LocalLeadScraperPro\settings.json`. Change the export folder on the
 Settings page if you would rather keep the CSVs somewhere else.
 

@@ -27,7 +27,8 @@ from google_maps_scraper import (
 REQUIRED_COLUMNS = (
     "name", "rating", "reviews_count", "category", "address", "phone",
     "website", "plus_code", "hours", "url", "search_term", "search_location",
-    "email", "contact_name", "scraped_phone", "phone_source",
+    "email", "contact_name", "scraped_phone", "phone_source", "email_source",
+    "preview_image",
     "emailed", "emailed_at", "emailed_to", "emailed_subject", "email_template",
 )
 

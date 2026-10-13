@@ -19,7 +19,6 @@ NAV_ITEMS: Sequence[Tuple[str, str, str]] = (
     ("scraper", "Website Scraper", "◎"),
     ("outreach", "Contacts & Outreach", "✉"),
     ("settings", "Settings", "⚙"),
-    ("license", "Licence", "⚿"),
     ("tools", "Tools", "⚒"),
     ("logs", "Logs", "☰"),
     ("help", "Help", "?"),
@@ -97,14 +96,7 @@ class Sidebar(QWidget):
 
         layout.addStretch(1)
 
-        # -- licence + status ---------------------------------------------
-        self.license_label = QLabel("Licence: —")
-        self.license_label.setObjectName("SidebarCaption")
-        self.expiry_label = QLabel("Expires: —")
-        self.expiry_label.setObjectName("SidebarCaption")
-        layout.addWidget(self.license_label)
-        layout.addWidget(self.expiry_label)
-        layout.addSpacing(8)
+        # -- status -------------------------------------------------------
 
         self.status_label = QLabel("● Ready")
         self.status_label.setObjectName("SidebarStatus")
@@ -115,10 +107,6 @@ class Sidebar(QWidget):
         button = self._buttons.get(key)
         if button is not None and not button.isChecked():
             button.setChecked(True)
-
-    def set_license(self, tier: str, expires: str) -> None:
-        self.license_label.setText(f"Licence: {tier}")
-        self.expiry_label.setText(f"Expires: {expires}")
 
     def set_status(self, text: str, tone: str = "idle") -> None:
         colours = {

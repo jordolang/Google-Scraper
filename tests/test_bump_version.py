@@ -310,16 +310,17 @@ def test_all_four_desktop_builds_are_wired_into_the_release():
     assert by_arch["apple-silicon"]["chromium"] == "Mac_Arm"
 
 
-def test_the_mac_workflow_publishes_a_zipped_bundle():
-    """A .app is a directory; a release asset is one file."""
+def test_the_mac_workflow_publishes_a_dmg_and_a_zipped_bundle():
+    """A .app is a directory; a release asset is one file (a .dmg and a .zip)."""
     mac = _workflow("macos-build.yml")
     steps = mac["jobs"]["build"]["steps"]
     names = [s.get("name") for s in steps]
     assert "Zip the bundle" in names
+    assert "Make the disk image" in names
     publish = [s for s in steps
                if str(s.get("uses", "")).startswith("softprops/action-gh-release")]
     assert len(publish) == 1
-    assert publish[0]["with"]["files"] == "${{ env.ASSET }}"
+    assert publish[0]["with"]["files"].splitlines() == ["${{ env.DMG }}", "${{ env.ASSET }}"]
     assert publish[0]["if"].strip() == "env.RELEASE_TAG != ''"
 
 

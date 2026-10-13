@@ -7,12 +7,89 @@ Sends personalized HTML emails from the generated_emails folder
 import os
 import re
 import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
+from email.message import EmailMessage
+from email.utils import formatdate, make_msgid
 from pathlib import Path
 from datetime import datetime
 import time
 import sys
+
+RESEND_API_URL = "https://api.resend.com/emails"
+
+
+def html_to_text(html):
+    """A readable plain-text version of an HTML email.
+
+    Sent alongside the HTML as the text/plain alternative. Mail with no plain
+    part is a classic spam signal, and some people read mail as text only.
+    """
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(html or "", "html.parser")
+    for tag in soup(["style", "script", "head", "title"]):
+        tag.decompose()
+    # The preheader and anything else hidden is not meant to be read.
+    for tag in soup.select('[style*="display:none"]'):
+        tag.decompose()
+    for img in soup.find_all("img"):
+        img.replace_with("")
+    for link in soup.find_all("a"):
+        label = link.get_text(" ", strip=True)
+        href = (link.get("href") or "").strip()
+        if href.startswith("mailto:"):
+            href = href[len("mailto:"):].split("?", 1)[0]
+        if href and href != label:
+            link.replace_with(f"{label} ({href})" if label else href)
+    # Source line breaks mean nothing in HTML; only <br> breaks a line, and
+    # block elements separate paragraphs. Mark both, flatten, then split.
+    for br in soup.find_all("br"):
+        br.replace_with("\x00")
+    for element in soup.find_all(["p", "div", "td", "tr", "li", "h1", "h2", "h3", "table"]):
+        element.insert_before("\x01")
+        element.insert_after("\x01")
+    flat = re.sub(r"\s+", " ", soup.get_text(""))
+    blocks = []
+    for block in flat.split("\x01"):
+        lines = [line.strip(" ·") for line in block.split("\x00")]
+        text = "\n".join(line for line in lines if line)
+        if text:
+            blocks.append(text)
+    return "\n\n".join(blocks).strip() + "\n"
+
+
+def build_message(*, from_name, from_email, to_email, subject, html,
+                  reply_to="", unsubscribe_url=""):
+    """The MIME message an outreach email is sent as.
+
+    Plain text and HTML alternatives, a Message-ID on the sender's own domain,
+    a Date, and a List-Unsubscribe header so Gmail and Outlook can show their
+    own Unsubscribe button. Each of those is something receiving servers check
+    before they decide between the inbox and spam.
+    """
+    msg = EmailMessage()
+    msg["From"] = f"{from_name} <{from_email}>" if from_name else from_email
+    msg["To"] = to_email
+    msg["Subject"] = subject
+    msg["Date"] = formatdate(localtime=True)
+    domain = from_email.rsplit("@", 1)[-1] if "@" in from_email else None
+    msg["Message-ID"] = make_msgid(domain=domain)
+    if reply_to:
+        msg["Reply-To"] = reply_to
+    msg["List-Unsubscribe"] = unsubscribe_header(from_email, unsubscribe_url)
+    if unsubscribe_url.startswith("https://"):
+        msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
+    msg.set_content(html_to_text(html))
+    msg.add_alternative(html, subtype="html")
+    return msg
+
+
+def unsubscribe_header(from_email, unsubscribe_url=""):
+    """``<https://…>, <mailto:…?subject=Unsubscribe>`` for List-Unsubscribe."""
+    parts = []
+    if unsubscribe_url.startswith("https://"):
+        parts.append(f"<{unsubscribe_url}>")
+    parts.append(f"<mailto:{from_email}?subject=Unsubscribe>")
+    return ", ".join(parts)
 
 
 def load_dotenv(path=".env"):
@@ -35,7 +112,8 @@ def load_dotenv(path=".env"):
 
 class EmailSender:
     def __init__(self, from_email="jordan@jlang.dev", smtp_server=None, smtp_port=None,
-                 smtp_username=None, reply_to=None):
+                 smtp_username=None, reply_to=None, from_name="Jordan Lang",
+                 unsubscribe_url=""):
         """
         Initialize the email sender
 
@@ -49,11 +127,15 @@ class EmailSender:
                 @icloud.com address, NOT the custom-domain alias.
             reply_to: Address replies should go to, when it differs from the
                 From: address. Omitted from the message entirely when unset.
+            from_name: Display name in the From: header.
+            unsubscribe_url: An https page that unsubscribes, for the
+                List-Unsubscribe header; a mailto is always included too.
         """
         self.from_email = from_email
         self.smtp_username = smtp_username or from_email
         self.reply_to = reply_to or ""
-        self.from_name = "Jordan Lang"
+        self.from_name = from_name or "Jordan Lang"
+        self.unsubscribe_url = unsubscribe_url or ""
         
         # Auto-detect SMTP settings based on email provider
         if smtp_server is None or smtp_port is None:
@@ -248,19 +330,11 @@ class EmailSender:
             True if sent successfully, False otherwise
         """
         try:
-            # Create message
-            msg = MIMEMultipart('alternative')
-            msg['From'] = f"{self.from_name} <{self.from_email}>"
-            msg['To'] = to_email
-            msg['Subject'] = subject
-            if self.reply_to:
-                msg['Reply-To'] = self.reply_to
-            
-            # Attach HTML content
-            html_part = MIMEText(html_content, 'html')
-            msg.attach(html_part)
-            
-            # Send email
+            msg = build_message(
+                from_name=self.from_name, from_email=self.from_email,
+                to_email=to_email, subject=subject, html=html_content,
+                reply_to=self.reply_to, unsubscribe_url=self.unsubscribe_url,
+            )
             self.smtp_connection.send_message(msg)
             
             print(f"✅ Sent to {business_name} ({to_email})")
@@ -390,6 +464,74 @@ class EmailSender:
         }
 
 
+
+class ResendSender(EmailSender):
+    """Sends through Resend's HTTPS API instead of SMTP.
+
+    Same interface as :class:`EmailSender`, so the pipeline can use either.
+    Resend signs every message with DKIM for a domain you verify with them,
+    which is the single biggest step toward landing in the inbox. The "password"
+    it is connected with is the Resend API key (``re_…``).
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.smtp_server, self.smtp_port = "api.resend.com", 443
+        self.api_key = ""
+        self._session = None
+
+    def connect(self, password):
+        key = (password or "").strip()
+        if not key.startswith("re_"):
+            print("❌ That does not look like a Resend API key (they start with re_).")
+            return False
+        import requests
+
+        self.api_key = key
+        self._session = requests.Session()
+        self._session.headers.update({
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+        })
+        return True
+
+    def disconnect(self):
+        if self._session is not None:
+            self._session.close()
+            self._session = None
+
+    def send_email(self, to_email, subject, html_content, business_name):
+        payload = {
+            "from": f"{self.from_name} <{self.from_email}>",
+            "to": [to_email],
+            "subject": subject,
+            "html": html_content,
+            "text": html_to_text(html_content),
+            "headers": {"List-Unsubscribe": unsubscribe_header(
+                self.from_email, self.unsubscribe_url)},
+        }
+        if self.unsubscribe_url.startswith("https://"):
+            payload["headers"]["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
+        if self.reply_to:
+            payload["reply_to"] = self.reply_to
+        try:
+            response = self._session.post(RESEND_API_URL, json=payload, timeout=30)
+            if response.status_code >= 300:
+                try:
+                    detail = response.json().get("message", response.text)
+                except ValueError:
+                    detail = response.text
+                raise RuntimeError(f"Resend said {response.status_code}: {detail}")
+            print(f"✅ Sent to {business_name} ({to_email})")
+            self.sent_count += 1
+            return True
+        except Exception as e:
+            print(f"❌ Failed to send to {business_name} ({to_email}): {str(e)}")
+            self.failed_count += 1
+            self.failed_emails.append((business_name, to_email, str(e)))
+            return False
+
+
 def main():
     """Main function with interactive CLI"""
     print("=" * 60)
@@ -510,23 +652,8 @@ def main():
     print("\n✨ Done!")
 
 
-def _check_licence() -> None:
-    """Refuse to run unlicensed, with a message rather than a traceback.
-
-    Running the module directly is a supported way to use this app, so it is
-    gated exactly like the desktop screens are. The check hangs off the
-    ``__main__`` guard rather than off ``main`` itself, because importing this
-    module — which the tests, the TUI and the GUI all do — must never depend
-    on a licence.
-    """
-    from licensing import console, plans
-
-    console.require_or_exit(plans.EMAIL_SEND, action="Sending email")
-
-
 if __name__ == "__main__":
     try:
-        _check_licence()
         main()
     except KeyboardInterrupt:
         print("\n\n⚠️  Interrupted by user")

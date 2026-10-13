@@ -330,6 +330,8 @@ class ResultsScreen(Screen):
         on_event = lambda e: self.app.call_from_thread(self._on_event, e)
         try:
             pipeline.scrape_contacts(chosen, progress=progress, on_event=on_event)
+            # Whatever the websites did not give us, look for elsewhere.
+            pipeline.fill_missing_contacts(chosen, progress=progress)
         except Exception as exc:  # pragma: no cover - runtime/browser dependent
             self.app.call_from_thread(self._log, f"[red]Error: {exc}[/red]")
             self.app.call_from_thread(self._fail, str(exc))
