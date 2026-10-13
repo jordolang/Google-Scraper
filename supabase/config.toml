@@ -1,0 +1,5 @@
+# Only what the unsubscribe function needs; `supabase link` fills in the rest.
+# Mail clients and browsers carry no Supabase key, so the function must accept
+# requests without a JWT.
+[functions.unsubscribe]
+verify_jwt = false

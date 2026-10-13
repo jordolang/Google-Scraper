@@ -241,6 +241,55 @@ class Pipeline:
             unsubscribe_url=self.unsubscribe_url,
         )
 
+    def _opt_outs(self):
+        """The Supabase unsubscribe list, or None when Supabase isn't set up.
+
+        It shares image hosting's project (URL from settings, secret key from
+        the app's .env). Once a request shows the table hasn't been created,
+        the run falls back to the shared unsubscribe setting.
+        """
+        if getattr(self, "_opt_out_list", None) is None:
+            from opt_outs import OptOutList
+
+            self._opt_out_list = OptOutList(url=self.image_host_url)
+            self._opt_outs_missing = False
+        if self._opt_outs_missing or not self._opt_out_list.configured():
+            return None
+        return self._opt_out_list
+
+    def _unsubscribe_link(self, email: str, progress: ProgressFn = _noop) -> str:
+        """This recipient's own unsubscribe URL; blank falls back to the setting."""
+        optouts = self._opt_outs()
+        if optouts is None or not email or "@" not in email:
+            return ""
+        from opt_outs import OptOutError, OptOutsNotSetUp
+
+        try:
+            return optouts.link_for(email)
+        except OptOutsNotSetUp as exc:
+            self._opt_outs_missing = True
+            progress(f"⚠ Unsubscribe links: {exc}")
+        except OptOutError as exc:
+            progress(f"⚠ No unsubscribe link for {email}: {exc}")
+        return ""
+
+    def _unsubscribed(self, emails: Sequence[str], progress: ProgressFn) -> Optional[set]:
+        """Addresses that have unsubscribed. None means the list couldn't be read."""
+        optouts = self._opt_outs()
+        if optouts is None:
+            return set()
+        from opt_outs import OptOutError, OptOutsNotSetUp
+
+        try:
+            return optouts.opted_out(emails)
+        except OptOutsNotSetUp as exc:
+            self._opt_outs_missing = True
+            progress(f"⚠ Unsubscribe list: {exc}")
+            return set()
+        except OptOutError as exc:
+            progress(f"❌ Could not check who has unsubscribed: {exc}")
+            return None
+
     def _safe_export_contacts(
         self, businesses: Sequence[Business], progress: ProgressFn
     ) -> None:
@@ -732,6 +781,7 @@ class LivePipeline(Pipeline):
     ) -> EmailMessage:
         from generate_emails import EmailGenerator
 
+        unsubscribe = self._unsubscribe_link(business.primary_email)
         # Per-industry mode: no single template_path, render from templates_dir.
         generator = EmailGenerator(
             output_dir="generated_emails",
@@ -739,7 +789,7 @@ class LivePipeline(Pipeline):
             templates_dir=self.templates_dir,
             sender_name=self.from_name,
             sender_address=self.sender_address,
-            unsubscribe_url=self.unsubscribe_url,
+            unsubscribe_url=unsubscribe or self.unsubscribe_url,
             asset_url=self._asset_url(),
         )
         html, _filename, email = generator.generate_email(
@@ -752,7 +802,8 @@ class LivePipeline(Pipeline):
             business.name, business.category
         )
         to_email = email or business.primary_email
-        return EmailMessage(business=business, to_email=to_email, subject=subject, html=html)
+        return EmailMessage(business=business, to_email=to_email, subject=subject,
+                            html=html, unsubscribe_url=unsubscribe)
 
     def send(
         self,
@@ -766,6 +817,13 @@ class LivePipeline(Pipeline):
         sender = self._sender()
         stats = {"sent": 0, "failed": 0, "skipped": 0, "total": len(messages)}
         delivered: List[EmailMessage] = []
+
+        # Never email anyone who has unsubscribed. If the list can't be read,
+        # stop rather than risk it.
+        unsubscribed = self._unsubscribed([m.to_email for m in messages], progress)
+        if unsubscribed is None:
+            stats["error"] = "could not check the unsubscribe list"
+            return stats
 
         if not dry_run:
             progress(f"Connecting to {sender.smtp_server}:{sender.smtp_port}…")
@@ -782,12 +840,17 @@ class LivePipeline(Pipeline):
                     progress(f"[{idx}/{len(messages)}] {msg.business.name}: no valid address, skipping")
                     stats["skipped"] += 1
                     continue
+                if msg.to_email.strip().lower() in unsubscribed:
+                    progress(f"[{idx}/{len(messages)}] {msg.business.name}: unsubscribed, skipping")
+                    stats["skipped"] += 1
+                    continue
                 if dry_run:
                     progress(f"[{idx}/{len(messages)}] DRY RUN → {msg.to_email}  ({msg.subject})")
                     continue
                 progress(f"[{idx}/{len(messages)}] sending → {msg.to_email}…")
                 ok = sender.send_email(
-                    msg.to_email, msg.subject, msg.html, msg.business.name
+                    msg.to_email, msg.subject, msg.html, msg.business.name,
+                    unsubscribe_url=msg.unsubscribe_url or None,
                 )
                 stats["sent" if ok else "failed"] += 1
                 if ok:

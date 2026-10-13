@@ -183,6 +183,7 @@ RUNTIME_IMPORTS = (
     "email_config",
     "deliverability",
     "image_host",
+    "opt_outs",
     "email_assets",
     "site_preview",
     "uuid",
