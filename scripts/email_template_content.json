@@ -1,332 +1,362 @@
 {
-  "automotive": {
-    "accent": "#3b82f6",
-    "kicker": "For auto & repair",
-    "preheader": "A site that turns roadside searches into booked appointments for {{BUSINESS_NAME}}.",
-    "headline": "When their check-engine light comes on, be the shop they find.",
-    "subhead": "Services, trust and one-tap booking — let’s make {{BUSINESS_NAME}} the obvious choice in {{LOCATION}}.",
-    "intro": [
-      "I build websites for {{CATEGORY}} businesses, and {{BUSINESS_NAME}} in {{LOCATION}} looks like a shop people can actually trust.",
-      "Drivers with a problem search fast and decide fast. A clear, credible site — services, reviews, and a quick way to book — wins that job before they scroll to the next shop."
-    ],
-    "audience": "auto shops",
-    "benefits": [
-      [
-        "Services made clear",
-        "Every service, upfront — so customers know you handle their problem and call."
-      ],
-      [
-        "One-tap appointments",
-        "Online booking and quote requests that keep your bays full."
-      ],
-      [
-        "Trust that converts",
-        "Reviews, warranties and certifications that turn a nervous driver into a customer."
-      ],
-      [
-        "First in “near me”",
-        "Local SEO and Google Business so you show up the moment they search."
-      ]
-    ]
-  },
-  "beauty_personal_care": {
-    "accent": "#ec4899",
-    "kicker": "For beauty & self-care",
-    "preheader": "A stunning, bookable site that keeps {{BUSINESS_NAME}}’s chairs full.",
-    "headline": "Let clients book you at 11pm without lifting a finger.",
-    "subhead": "Gorgeous galleries and self-serve booking — let’s make {{BUSINESS_NAME}} the name they save and share.",
-    "intro": [
-      "I build sites for {{CATEGORY}} businesses, and {{BUSINESS_NAME}}’s look in {{LOCATION}} is the kind clients rave about.",
-      "Your clients discover you on their phone and decide in seconds. A beautiful, easy-to-book site fills your calendar while you’re busy with the client in the chair."
-    ],
-    "audience": "salons & studios",
-    "benefits": [
-      [
-        "Book while you sleep",
-        "Self-serve online booking so appointments fill in even after hours."
-      ],
-      [
-        "Show the transformations",
-        "Swipeable galleries and reviews that turn admirers into bookings."
-      ],
-      [
-        "On-brand & elegant",
-        "A custom look that matches your aesthetic — not a cookie-cutter template."
-      ],
-      [
-        "Top of local search",
-        "Google Business and SEO so new clients in {{LOCATION}} find you first."
-      ]
-    ]
-  },
-  "creative_design": {
-    "accent": "#8b5cf6",
-    "kicker": "For creative studios",
-    "preheader": "A portfolio site as considered as the work {{BUSINESS_NAME}} ships.",
-    "headline": "Your portfolio deserves a site as sharp as your work.",
-    "subhead": "Clients hire what they can see. Let’s give {{BUSINESS_NAME}} a home online that closes the deal before the first call.",
-    "intro": [
-      "I’m a developer who works with {{CATEGORY}} studios, and {{BUSINESS_NAME}}’s work in {{LOCATION}} caught my eye — genuinely strong.",
-      "Creative talent gets undersold by a weak website every day. A clean, fast, art-directed site signals exactly the level you operate at — and turns browsers into briefs."
-    ],
-    "audience": "creative studios",
-    "benefits": [
-      [
-        "Portfolio that performs",
-        "Full-bleed galleries and case studies that load instantly and look flawless on any device."
-      ],
-      [
-        "Design-led, pixel-perfect",
-        "Custom build, not a template — typography and motion that match your studio’s taste."
-      ],
-      [
-        "Discoverable work",
-        "SEO and structure so the right clients find your best projects, not page two of Google."
-      ],
-      [
-        "Convert the inquiry",
-        "Smart contact flows and clear calls-to-action that turn admirers into paying clients."
-      ]
-    ]
-  },
-  "events_hospitality": {
-    "accent": "#f43f5e",
-    "kicker": "For events & hospitality",
-    "preheader": "An inspiring site that books more events for {{BUSINESS_NAME}}.",
-    "headline": "Make every visitor picture their big day with you.",
-    "subhead": "Galleries, availability and instant inquiries — let’s make {{BUSINESS_NAME}} the booking they can’t pass up.",
-    "intro": [
-      "I build websites for {{CATEGORY}} businesses, and {{BUSINESS_NAME}} in {{LOCATION}} clearly knows how to create an experience.",
-      "People planning events buy on emotion and book on ease. A beautiful, fast site with galleries and a simple inquiry form gets them excited — and gets their date on your calendar."
-    ],
-    "audience": "event & hospitality pros",
-    "benefits": [
-      [
-        "Sell the experience",
-        "Immersive galleries and video that let visitors imagine their event with you."
-      ],
-      [
-        "Inquiries made easy",
-        "Availability and booking forms that turn dreamers into confirmed dates."
-      ],
-      [
-        "Unforgettable design",
-        "A site as memorable as the events you run — polished on every device."
-      ],
-      [
-        "Found for the moment",
-        "SEO so couples and planners in {{LOCATION}} discover you first."
-      ]
-    ]
-  },
-  "food_beverage": {
-    "accent": "#ef4444",
-    "kicker": "For food & drink",
-    "preheader": "Menus, hours and online orders that bring more guests through {{BUSINESS_NAME}}’s door.",
-    "headline": "Hungry customers are searching. Show up first.",
-    "subhead": "Menu, hours, and “order now” in two taps — let’s make {{BUSINESS_NAME}} the easy yes at dinner time.",
-    "intro": [
-      "I build websites for {{CATEGORY}} spots, and {{BUSINESS_NAME}} in {{LOCATION}} is exactly the kind of place people love to find.",
-      "But if your menu is a blurry PDF or your hours are hard to find, hungry customers bounce to the next result. A mouth-watering, fast site turns a search into a table — or an order."
-    ],
-    "audience": "restaurants & bars",
-    "benefits": [
-      [
-        "Menus that sell",
-        "Beautiful, always-current menus with photos that make people order before they arrive."
-      ],
-      [
-        "Order & reserve",
-        "Online ordering, reservations and delivery links wired in — fewer missed sales."
-      ],
-      [
-        "Found & open",
-        "Google Business, hours and directions dialed in so “near me” searches land on you."
-      ],
-      [
-        "Crave-worthy design",
-        "A site as appetizing as the food, fast on mobile where your customers actually are."
-      ]
-    ]
-  },
-  "general": {
-    "accent": "#6366f1",
-    "kicker": "Custom web solutions",
-    "preheader": "A modern site that turns visitors into customers for {{BUSINESS_NAME}}.",
-    "headline": "A website that actually grows your business.",
-    "subhead": "Fast, modern, and built to convert — let’s give {{BUSINESS_NAME}} an online presence that pulls its weight.",
-    "intro": [
-      "I’m a full-stack developer who builds custom sites for local businesses, and {{BUSINESS_NAME}} in {{LOCATION}} stood out.",
-      "In today’s market, your website is your storefront, your first impression, and your best salesperson. A fast, professional, mobile-first site turns searches into customers — and I’d love to build yours."
-    ],
-    "audience": "growing businesses",
-    "benefits": [
-      [
-        "Custom, never templated",
-        "Designed from scratch to match {{BUSINESS_NAME}}’s brand and audience."
-      ],
-      [
-        "Fast & mobile-first",
-        "Built for speed on every device, where most of your customers are."
-      ],
-      [
-        "Found on Google",
-        "SEO baked in so the right customers in {{LOCATION}} find you."
-      ],
-      [
-        "Support that stays",
-        "I handle hosting, updates and questions long after launch."
-      ]
-    ]
-  },
-  "health_wellness": {
-    "accent": "#10b981",
-    "kicker": "For health & wellness",
-    "preheader": "An easy-to-book site that grows {{BUSINESS_NAME}}’s client base.",
-    "headline": "Help more clients book, in fewer clicks.",
-    "subhead": "Trust, credentials, and easy scheduling — let’s make {{BUSINESS_NAME}} the practice people commit to.",
-    "intro": [
-      "I work with {{CATEGORY}} practices, and {{BUSINESS_NAME}} in {{LOCATION}} clearly puts clients first — that should come through online.",
-      "People choosing a wellness provider look for trust and an easy first step. A calm, professional site with simple booking removes the friction between “interested” and “scheduled”."
-    ],
-    "audience": "wellness practices",
-    "benefits": [
-      [
-        "Booking without back-and-forth",
-        "Online scheduling and intake forms so new clients book themselves, day or night."
-      ],
-      [
-        "Builds instant trust",
-        "Credentials, testimonials and a warm design that reassures first-time visitors."
-      ],
-      [
-        "Found when it matters",
-        "Local SEO so people searching for your services in {{LOCATION}} find you first."
-      ],
-      [
-        "Effortless on mobile",
-        "Fast, accessible and easy to use — the way most clients will reach you."
-      ]
-    ]
-  },
-  "home_trade_services": {
-    "accent": "#f59e0b",
-    "kicker": "For the trades",
-    "preheader": "A site that turns local searches into booked jobs for {{BUSINESS_NAME}}.",
-    "headline": "Your work is solid. Your website should be too.",
-    "subhead": "Homeowners judge a contractor by their online first impression — let’s make {{BUSINESS_NAME}}’s the one that gets the call.",
-    "intro": [
-      "I build websites for {{CATEGORY}} businesses, and {{BUSINESS_NAME}} stood out in {{LOCATION}} — clearly a crew that does the job right.",
-      "Here’s the thing: most homeowners now find their contractor on their phone before they ever call. A fast, trustworthy site puts you at the top of that shortlist — and keeps the tire-kickers from wasting your time."
-    ],
-    "audience": "home-service pros",
-    "benefits": [
-      [
-        "Built to get the call",
-        "Click-to-call, quote requests and your service area front-and-center, so a lead becomes a booked job."
-      ],
-      [
-        "Show off the work",
-        "Before/after galleries and reviews that prove quality — the way homeowners decide who to trust."
-      ],
-      [
-        "Fast & found on Google",
-        "Local SEO so “{{CATEGORY}} near me” finds {{BUSINESS_NAME}} first, on a site that loads instantly."
-      ],
-      [
-        "No jargon, no hassle",
-        "I handle domain, hosting and updates. You stay on the tools; I keep you online."
-      ]
-    ]
-  },
-  "professional_services": {
-    "accent": "#6366f1",
-    "kicker": "For professional firms",
-    "preheader": "An authoritative site that earns {{BUSINESS_NAME}} more qualified inquiries.",
-    "headline": "Credibility, in the first five seconds.",
-    "subhead": "A polished, authoritative site — let’s make {{BUSINESS_NAME}} the firm clients feel safe choosing.",
-    "intro": [
-      "I build websites for {{CATEGORY}} firms, and {{BUSINESS_NAME}} in {{LOCATION}} clearly does serious work for its clients.",
-      "When someone’s choosing a professional to trust with something important, your website is the credibility test. A refined, clear, fast site tells them they’re in capable hands — and gets them to reach out."
-    ],
-    "audience": "professional firms",
-    "benefits": [
-      [
-        "Authority by design",
-        "A clean, professional presence that signals expertise and earns trust instantly."
-      ],
-      [
-        "Qualified inquiries",
-        "Clear services and smart contact flows that bring in the right clients, not tire-kickers."
-      ],
-      [
-        "Secure & credible",
-        "Fast, secure, and accessible — the standard clients expect from a serious firm."
-      ],
-      [
-        "Found by intent",
-        "SEO so people searching for your expertise in {{LOCATION}} land on you."
-      ]
-    ]
-  },
-  "real_estate_property": {
-    "accent": "#14b8a6",
-    "kicker": "For real estate",
-    "preheader": "A listing-ready site that captures more buyer and seller leads for {{BUSINESS_NAME}}.",
-    "headline": "Listings that sell, leads that stick.",
-    "subhead": "Beautiful property pages and instant lead capture — let’s make {{BUSINESS_NAME}} the agent buyers remember.",
-    "intro": [
-      "I build websites for {{CATEGORY}} professionals, and {{BUSINESS_NAME}} in {{LOCATION}} clearly knows the market.",
-      "Buyers and sellers start online. A fast site with stunning listings, easy search, and lead capture keeps them on your page — and puts their contact info in your inbox instead of a competitor’s."
-    ],
-    "audience": "real-estate pros",
-    "benefits": [
-      [
-        "Listings that shine",
-        "Photo-rich property pages and search that keep buyers browsing your inventory."
-      ],
-      [
-        "Capture every lead",
-        "Valuation and inquiry forms that turn casual browsers into real contacts."
-      ],
-      [
-        "Mobile-first tours",
-        "Fast, swipeable experiences for buyers who shop from their phones."
-      ],
-      [
-        "Own your market online",
-        "Local SEO so {{LOCATION}} searchers find your listings first."
-      ]
-    ]
-  },
-  "retail_boutique": {
-    "accent": "#a855f7",
-    "kicker": "For local retail",
-    "preheader": "A storefront online that brings more customers to {{BUSINESS_NAME}}.",
-    "headline": "Your shelves are stocked. Let’s stock your website too.",
-    "subhead": "Show what’s in store and sell online — let’s make {{BUSINESS_NAME}} the shop customers can’t stop visiting.",
-    "intro": [
-      "I build websites for {{CATEGORY}} shops, and {{BUSINESS_NAME}} in {{LOCATION}} is exactly the kind of local gem people love.",
-      "Customers check online before they visit — and buy online when you let them. A vibrant site with your products, story, and an easy checkout turns browsers into regulars."
-    ],
-    "audience": "local shops",
-    "benefits": [
-      [
-        "Your store, online",
-        "Showcase products and new arrivals so customers come in knowing what they want."
-      ],
-      [
-        "Sell beyond the door",
-        "Simple e-commerce and Stripe checkout to capture sales after hours."
-      ],
-      [
-        "Tell your story",
-        "A branded site that builds the loyal, repeat following boutiques thrive on."
-      ],
-      [
-        "Found & followed",
-        "Local SEO and social links that keep {{LOCATION}} shoppers coming back."
-      ]
-    ]
-  }
+ "automotive": {
+  "accent": "#3b82f6",
+  "kicker": "For auto & repair",
+  "preheader": "A site that turns roadside searches into booked appointments for {{BUSINESS_NAME}}.",
+  "headline": "When their check-engine light comes on, be the shop they find.",
+  "subhead": "Services, trust and one-tap booking — let’s make {{BUSINESS_NAME}} the obvious choice in {{LOCATION}}.",
+  "intro": [
+   "I build websites for {{CATEGORY}} businesses, and {{BUSINESS_NAME}} in {{LOCATION}} looks like a shop people can actually trust.",
+   "Drivers with a problem search fast and decide fast. A clear, credible site — services, reviews, and a quick way to book — wins that job before they scroll to the next shop."
+  ],
+  "audience": "auto shops",
+  "benefits": [
+   [
+    "Services made clear",
+    "Every service, upfront — so customers know you handle their problem and call."
+   ],
+   [
+    "One-tap appointments",
+    "Online booking and quote requests that keep your bays full."
+   ],
+   [
+    "Trust that converts",
+    "Reviews, warranties and certifications that turn a nervous driver into a customer."
+   ],
+   [
+    "First in “near me”",
+    "Local SEO and Google Business so you show up the moment they search."
+   ]
+  ]
+ },
+ "beauty_personal_care": {
+  "accent": "#ec4899",
+  "kicker": "For beauty & self-care",
+  "preheader": "A stunning, bookable site that keeps {{BUSINESS_NAME}}’s chairs full.",
+  "headline": "Let clients book you at 11pm without lifting a finger.",
+  "subhead": "Gorgeous galleries and self-serve booking — let’s make {{BUSINESS_NAME}} the name they save and share.",
+  "intro": [
+   "I build sites for {{CATEGORY}} businesses, and {{BUSINESS_NAME}}’s look in {{LOCATION}} is the kind clients rave about.",
+   "Your clients discover you on their phone and decide in seconds. A beautiful, easy-to-book site fills your calendar while you’re busy with the client in the chair."
+  ],
+  "audience": "salons & studios",
+  "benefits": [
+   [
+    "Book while you sleep",
+    "Self-serve online booking so appointments fill in even after hours."
+   ],
+   [
+    "Show the transformations",
+    "Swipeable galleries and reviews that turn admirers into bookings."
+   ],
+   [
+    "On-brand & elegant",
+    "A custom look that matches your aesthetic — not a cookie-cutter template."
+   ],
+   [
+    "Top of local search",
+    "Google Business and SEO so new clients in {{LOCATION}} find you first."
+   ]
+  ]
+ },
+ "creative_design": {
+  "accent": "#8b5cf6",
+  "kicker": "For creative studios",
+  "preheader": "A portfolio site as considered as the work {{BUSINESS_NAME}} ships.",
+  "headline": "Your portfolio deserves a site as sharp as your work.",
+  "subhead": "Clients hire what they can see. Let’s give {{BUSINESS_NAME}} a home online that closes the deal before the first call.",
+  "intro": [
+   "I’m a developer who works with {{CATEGORY}} studios, and {{BUSINESS_NAME}}’s work in {{LOCATION}} caught my eye — genuinely strong.",
+   "Creative talent gets undersold by a weak website every day. A clean, fast, art-directed site signals exactly the level you operate at — and turns browsers into briefs."
+  ],
+  "audience": "creative studios",
+  "benefits": [
+   [
+    "Portfolio that performs",
+    "Full-bleed galleries and case studies that load instantly and look flawless on any device."
+   ],
+   [
+    "Design-led, pixel-perfect",
+    "Custom build, not a template — typography and motion that match your studio’s taste."
+   ],
+   [
+    "Discoverable work",
+    "SEO and structure so the right clients find your best projects, not page two of Google."
+   ],
+   [
+    "Convert the inquiry",
+    "Smart contact flows and clear calls-to-action that turn admirers into paying clients."
+   ]
+  ]
+ },
+ "events_hospitality": {
+  "accent": "#f43f5e",
+  "kicker": "For events & hospitality",
+  "preheader": "An inspiring site that books more events for {{BUSINESS_NAME}}.",
+  "headline": "Make every visitor picture their big day with you.",
+  "subhead": "Galleries, availability and instant inquiries — let’s make {{BUSINESS_NAME}} the booking they can’t pass up.",
+  "intro": [
+   "I build websites for {{CATEGORY}} businesses, and {{BUSINESS_NAME}} in {{LOCATION}} clearly knows how to create an experience.",
+   "People planning events buy on emotion and book on ease. A beautiful, fast site with galleries and a simple inquiry form gets them excited — and gets their date on your calendar."
+  ],
+  "audience": "event & hospitality pros",
+  "benefits": [
+   [
+    "Sell the experience",
+    "Immersive galleries and video that let visitors imagine their event with you."
+   ],
+   [
+    "Inquiries made easy",
+    "Availability and booking forms that turn dreamers into confirmed dates."
+   ],
+   [
+    "Unforgettable design",
+    "A site as memorable as the events you run — polished on every device."
+   ],
+   [
+    "Found for the moment",
+    "SEO so couples and planners in {{LOCATION}} discover you first."
+   ]
+  ]
+ },
+ "food_beverage": {
+  "accent": "#ef4444",
+  "kicker": "For food & drink",
+  "preheader": "Menus, hours and online orders that bring more guests through {{BUSINESS_NAME}}’s door.",
+  "headline": "Hungry customers are searching. Show up first.",
+  "subhead": "Menu, hours, and “order now” in two taps — let’s make {{BUSINESS_NAME}} the easy yes at dinner time.",
+  "intro": [
+   "I build websites for {{CATEGORY}} spots, and {{BUSINESS_NAME}} in {{LOCATION}} is exactly the kind of place people love to find.",
+   "But if your menu is a blurry PDF or your hours are hard to find, hungry customers bounce to the next result. A mouth-watering, fast site turns a search into a table — or an order."
+  ],
+  "audience": "restaurants & bars",
+  "benefits": [
+   [
+    "Menus that sell",
+    "Beautiful, always-current menus with photos that make people order before they arrive."
+   ],
+   [
+    "Order & reserve",
+    "Online ordering, reservations and delivery links wired in — fewer missed sales."
+   ],
+   [
+    "Found & open",
+    "Google Business, hours and directions dialed in so “near me” searches land on you."
+   ],
+   [
+    "Crave-worthy design",
+    "A site as appetizing as the food, fast on mobile where your customers actually are."
+   ]
+  ]
+ },
+ "general": {
+  "accent": "#6366f1",
+  "kicker": "Custom web solutions",
+  "preheader": "A modern site that turns visitors into customers for {{BUSINESS_NAME}}.",
+  "headline": "A website that actually grows your business.",
+  "subhead": "Fast, modern, and built to convert — let’s give {{BUSINESS_NAME}} an online presence that pulls its weight.",
+  "intro": [
+   "I’m a full-stack developer who builds custom sites for local businesses, and {{BUSINESS_NAME}} in {{LOCATION}} stood out.",
+   "In today’s market, your website is your storefront, your first impression, and your best salesperson. A fast, professional, mobile-first site turns searches into customers — and I’d love to build yours."
+  ],
+  "audience": "growing businesses",
+  "benefits": [
+   [
+    "Custom, never templated",
+    "Designed from scratch to match {{BUSINESS_NAME}}’s brand and audience."
+   ],
+   [
+    "Fast & mobile-first",
+    "Built for speed on every device, where most of your customers are."
+   ],
+   [
+    "Found on Google",
+    "SEO baked in so the right customers in {{LOCATION}} find you."
+   ],
+   [
+    "Support that stays",
+    "I handle hosting, updates and questions long after launch."
+   ]
+  ]
+ },
+ "health_wellness": {
+  "accent": "#10b981",
+  "kicker": "For health & wellness",
+  "preheader": "An easy-to-book site that grows {{BUSINESS_NAME}}’s client base.",
+  "headline": "Help more clients book, in fewer clicks.",
+  "subhead": "Trust, credentials, and easy scheduling — let’s make {{BUSINESS_NAME}} the practice people commit to.",
+  "intro": [
+   "I work with {{CATEGORY}} practices, and {{BUSINESS_NAME}} in {{LOCATION}} clearly puts clients first — that should come through online.",
+   "People choosing a wellness provider look for trust and an easy first step. A calm, professional site with simple booking removes the friction between “interested” and “scheduled”."
+  ],
+  "audience": "wellness practices",
+  "benefits": [
+   [
+    "Booking without back-and-forth",
+    "Online scheduling and intake forms so new clients book themselves, day or night."
+   ],
+   [
+    "Builds instant trust",
+    "Credentials, testimonials and a warm design that reassures first-time visitors."
+   ],
+   [
+    "Found when it matters",
+    "Local SEO so people searching for your services in {{LOCATION}} find you first."
+   ],
+   [
+    "Effortless on mobile",
+    "Fast, accessible and easy to use — the way most clients will reach you."
+   ]
+  ]
+ },
+ "home_trade_services": {
+  "accent": "#f59e0b",
+  "kicker": "For the trades",
+  "preheader": "A site that turns local searches into booked jobs for {{BUSINESS_NAME}}.",
+  "headline": "Your work is solid. Your website should be too.",
+  "subhead": "Homeowners judge a contractor by their online first impression — let’s make {{BUSINESS_NAME}}’s the one that gets the call.",
+  "intro": [
+   "I build websites for {{CATEGORY}} businesses, and {{BUSINESS_NAME}} stood out in {{LOCATION}} — clearly a crew that does the job right.",
+   "Here’s the thing: most homeowners now find their contractor on their phone before they ever call. A fast, trustworthy site puts you at the top of that shortlist — and keeps the tire-kickers from wasting your time."
+  ],
+  "audience": "home-service pros",
+  "benefits": [
+   [
+    "Built to get the call",
+    "Click-to-call, quote requests and your service area front-and-center, so a lead becomes a booked job."
+   ],
+   [
+    "Show off the work",
+    "Before/after galleries and reviews that prove quality — the way homeowners decide who to trust."
+   ],
+   [
+    "Fast & found on Google",
+    "Local SEO so “{{CATEGORY}} near me” finds {{BUSINESS_NAME}} first, on a site that loads instantly."
+   ],
+   [
+    "No jargon, no hassle",
+    "I handle domain, hosting and updates. You stay on the tools; I keep you online."
+   ]
+  ]
+ },
+ "professional_services": {
+  "accent": "#6366f1",
+  "kicker": "For professional firms",
+  "preheader": "An authoritative site that earns {{BUSINESS_NAME}} more qualified inquiries.",
+  "headline": "Credibility, in the first five seconds.",
+  "subhead": "A polished, authoritative site — let’s make {{BUSINESS_NAME}} the firm clients feel safe choosing.",
+  "intro": [
+   "I build websites for {{CATEGORY}} firms, and {{BUSINESS_NAME}} in {{LOCATION}} clearly does serious work for its clients.",
+   "When someone’s choosing a professional to trust with something important, your website is the credibility test. A refined, clear, fast site tells them they’re in capable hands — and gets them to reach out."
+  ],
+  "audience": "professional firms",
+  "benefits": [
+   [
+    "Authority by design",
+    "A clean, professional presence that signals expertise and earns trust instantly."
+   ],
+   [
+    "Qualified inquiries",
+    "Clear services and smart contact flows that bring in the right clients, not tire-kickers."
+   ],
+   [
+    "Secure & credible",
+    "Fast, secure, and accessible — the standard clients expect from a serious firm."
+   ],
+   [
+    "Found by intent",
+    "SEO so people searching for your expertise in {{LOCATION}} land on you."
+   ]
+  ]
+ },
+ "real_estate_property": {
+  "accent": "#14b8a6",
+  "kicker": "For real estate",
+  "preheader": "A listing-ready site that captures more buyer and seller leads for {{BUSINESS_NAME}}.",
+  "headline": "Listings that sell, leads that stick.",
+  "subhead": "Beautiful property pages and instant lead capture — let’s make {{BUSINESS_NAME}} the agent buyers remember.",
+  "intro": [
+   "I build websites for {{CATEGORY}} professionals, and {{BUSINESS_NAME}} in {{LOCATION}} clearly knows the market.",
+   "Buyers and sellers start online. A fast site with stunning listings, easy search, and lead capture keeps them on your page — and puts their contact info in your inbox instead of a competitor’s."
+  ],
+  "audience": "real-estate pros",
+  "benefits": [
+   [
+    "Listings that shine",
+    "Photo-rich property pages and search that keep buyers browsing your inventory."
+   ],
+   [
+    "Capture every lead",
+    "Valuation and inquiry forms that turn casual browsers into real contacts."
+   ],
+   [
+    "Mobile-first tours",
+    "Fast, swipeable experiences for buyers who shop from their phones."
+   ],
+   [
+    "Own your market online",
+    "Local SEO so {{LOCATION}} searchers find your listings first."
+   ]
+  ]
+ },
+ "retail_boutique": {
+  "accent": "#a855f7",
+  "kicker": "For local retail",
+  "preheader": "A storefront online that brings more customers to {{BUSINESS_NAME}}.",
+  "headline": "Your shelves are stocked. Let’s stock your website too.",
+  "subhead": "Show what’s in store and sell online — let’s make {{BUSINESS_NAME}} the shop customers can’t stop visiting.",
+  "intro": [
+   "I build websites for {{CATEGORY}} shops, and {{BUSINESS_NAME}} in {{LOCATION}} is exactly the kind of local gem people love.",
+   "Customers check online before they visit — and buy online when you let them. A vibrant site with your products, story, and an easy checkout turns browsers into regulars."
+  ],
+  "audience": "local shops",
+  "benefits": [
+   [
+    "Your store, online",
+    "Showcase products and new arrivals so customers come in knowing what they want."
+   ],
+   [
+    "Sell beyond the door",
+    "Simple e-commerce and Stripe checkout to capture sales after hours."
+   ],
+   [
+    "Tell your story",
+    "A branded site that builds the loyal, repeat following boutiques thrive on."
+   ],
+   [
+    "Found & followed",
+    "Local SEO and social links that keep {{LOCATION}} shoppers coming back."
+   ]
+  ]
+ },
+ "roofing": {
+  "accent": "#c2410c",
+  "kicker": "For roofers",
+  "preheader": "A site that turns roof searches in {{LOCATION}} into booked inspections for {{BUSINESS_NAME}}.",
+  "headline": "The roof over their head deserves a roofer they can find online.",
+  "subhead": "Homeowners check a roofer out online before they ever pick up the phone. Let’s make {{BUSINESS_NAME}} the one they call.",
+  "intro": [
+   "I build websites for roofing companies, and {{BUSINESS_NAME}} stood out to me in {{LOCATION}}.",
+   "A new roof is one of the biggest checks a homeowner writes, so they research hard: photos of past jobs, reviews, warranties and how fast you can come out. A strong website answers all of that before they call, and wins the job before they ring the next roofer."
+  ],
+  "audience": "roofing companies",
+  "benefits": [
+   [
+    "Free inspection requests",
+    "A one-tap “Book a free roof inspection” form and click-to-call on every page, so a leak becomes a lead."
+   ],
+   [
+    "Proof on every page",
+    "Before/after job photos, Google reviews, warranties and insurance details that make homeowners trust you."
+   ],
+   [
+    "Storm-ready",
+    "A storm-damage page and insurance-claim help that brings in the calls after every hail or wind event."
+   ],
+   [
+    "First in “roofer near me”",
+    "Local SEO for {{LOCATION}} and the towns you serve, on a site that loads instantly on a phone."
+   ]
+  ]
+ }
 }

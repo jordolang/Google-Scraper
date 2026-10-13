@@ -113,14 +113,27 @@ def split_industries(text: str) -> List[str]:
 
 
 def available_templates(templates_dir: Optional[str] = None) -> List[Tuple[str, str]]:
-    """(label, industry key) for every industry template on disk."""
+    """(label, template id) for every email template on disk.
+
+    Each industry's default template comes first, followed by its variants
+    (``roofing__storm.html`` …), labelled by their ``llsp-name`` comment.
+    """
     import industries
+    from generate_emails import VARIANT_SEP, template_meta
 
     found: List[Tuple[str, str]] = []
     directory = Path(templates_dir) if templates_dir else runtime.user_asset("email_templates")
     for industry in industries.all_industries():
-        if (directory / f"{industry.key}.html").exists():
+        default = directory / f"{industry.key}.html"
+        if default.exists():
             found.append((industry.label, industry.key))
+        for path in sorted(directory.glob(f"{industry.key}{VARIANT_SEP}*.html")):
+            try:
+                name = template_meta(path.read_text(encoding="utf-8")).get("name", "")
+            except OSError:
+                continue
+            name = name or path.stem.split(VARIANT_SEP, 1)[1].replace("_", " ").title()
+            found.append((f"{industry.label} — {name}", path.stem))
     if not found:  # templates dir missing (e.g. a stripped install)
         found = [(i.label, i.key) for i in industries.all_industries()]
     return found

@@ -36,6 +36,56 @@ _PROPER_FIRST_WORDS = {
 
 _CONDITIONAL = re.compile(r"<!--IF:([A-Z_]+)-->(.*?)<!--ENDIF:\1-->\n?", re.S)
 
+# Settings a template carries about itself, in HTML comments:
+#   <!-- llsp-name: Storm season -->            label in the template picker
+#   <!-- llsp-subject: … {{BUSINESS_NAME}} -->  subject line (tokens allowed)
+#   <!-- llsp-hero: heroes/roofing.jpg -->      banner image, see email_assets
+_META = re.compile(r"<!--\s*llsp-([a-z]+):\s*(.*?)\s*-->")
+
+#: Separates an industry from a variant in a template id: "roofing__storm".
+VARIANT_SEP = "__"
+#: An ``industry_key`` starting with this asks for a style, not an industry:
+#: "@showcase" renders each business's own industry in its showcase layout.
+STYLE_PREFIX = "@"
+
+#: Words a scraped contact name can start with that aren't a first name.
+_NOT_FIRST_NAMES = {"the", "office", "info", "sales", "admin", "team", "support",
+                    "contact", "service", "customer", "manager", "owner", "dr",
+                    "mr", "mrs", "ms", "hello"}
+
+
+def template_meta(html):
+    """The ``llsp-*`` settings a template declares, as ``{name: value}``."""
+    return {key: value for key, value in _META.findall(html)}
+
+
+def industry_of(template_id):
+    """The industry a template id belongs to: "roofing__storm" -> "roofing"."""
+    return (template_id or "").split(VARIANT_SEP, 1)[0]
+
+
+def first_name(contact_names):
+    """A usable first name from a scraped contact field, else ""."""
+    for raw in str(contact_names or "").split(","):
+        word = raw.strip().split(" ")[0].strip(".,")
+        if (len(word) > 1 and word.isalpha() and word[0].isupper()
+                and word.lower() not in _NOT_FIRST_NAMES):
+            return word
+    return ""
+
+
+def website_domain(website):
+    """"https://www.acme.com/home" -> "acme.com"."""
+    netloc = urlparse(website if "//" in website else f"//{website}").netloc.lower()
+    return netloc[4:] if netloc.startswith("www.") else netloc
+
+
+def _number(value):
+    try:
+        return float(str(value).replace(",", "").strip())
+    except ValueError:
+        return None
+
 
 def apply_conditionals(html, values):
     """Keep ``<!--IF:NAME-->`` blocks whose ``values[NAME]`` is set; drop the rest."""
@@ -53,7 +103,8 @@ def unsubscribe_link(from_email, url=""):
 class EmailGenerator:
     def __init__(self, template_path=None, output_dir="generated_emails",
                  from_email="jordan@jlang.dev", templates_dir=TEMPLATES_DIR,
-                 sender_name="Jordan Lang", sender_address="", unsubscribe_url=""):
+                 sender_name="Jordan Lang", sender_address="", unsubscribe_url="",
+                 asset_url=None):
         """
         Initialize the email generator
 
@@ -77,6 +128,8 @@ class EmailGenerator:
                 expects one in commercial email; the line is left out when blank.
             unsubscribe_url: A page that unsubscribes; blank means a mailto
                 link that asks the recipient to reply "Unsubscribe".
+            asset_url: ``name -> url`` for a template's ``llsp-hero`` image;
+                defaults to the copy in the public repository.
         """
         self.template_path = template_path
         self.output_dir = output_dir
@@ -86,6 +139,12 @@ class EmailGenerator:
         self.unsubscribe_url = unsubscribe_url or ""
         self.templates_dir = templates_dir
         self._template_cache = {}
+        if asset_url is None:
+            import email_assets
+            asset_url = email_assets.public_url
+        self.asset_url = asset_url
+        #: Subject line the last rendered template asked for ("" = none).
+        self.last_subject = ""
 
         # Create output directory if it doesn't exist
         Path(output_dir).mkdir(exist_ok=True)
@@ -96,18 +155,36 @@ class EmailGenerator:
             with open(template_path, 'r', encoding='utf-8') as f:
                 self.template = f.read()
 
-    def _load_industry_template(self, industry_key):
-        """Load (and cache) the template file for an industry, general fallback."""
-        if industry_key in self._template_cache:
-            return self._template_cache[industry_key]
-        industry = industries.get(industry_key)
-        path = Path(self.templates_dir) / industry.template_filename
-        if not path.exists():
-            # Fall back to the general template rather than crashing a batch.
-            path = Path(self.templates_dir) / industries.GENERAL.template_filename
+    def _load_industry_template(self, template_id):
+        """Load (and cache) a template by id, falling back to its industry's
+        default template and then to the general one."""
+        if template_id in self._template_cache:
+            return self._template_cache[template_id]
+        directory = Path(self.templates_dir)
+        candidates = [
+            directory / f"{template_id}.html",
+            directory / industries.get(industry_of(template_id)).template_filename,
+            directory / industries.GENERAL.template_filename,
+        ]
+        # A bare unknown key resolves to general, never to an odd file name.
+        if VARIANT_SEP not in template_id and industries.get(template_id).key != template_id:
+            candidates = candidates[2:]
+        path = next((c for c in candidates if c.exists()), candidates[-1])
         html = path.read_text(encoding='utf-8')
-        self._template_cache[industry_key] = html
+        self._template_cache[template_id] = html
         return html
+
+    def resolve_template(self, business_data, industry_key=None):
+        """The template id to render: an explicit id, an "@style" applied to
+        the business's own industry, or that industry's default template."""
+        if industry_key and not industry_key.startswith(STYLE_PREFIX):
+            return industry_key
+        industry = self.industry_for(business_data)
+        if industry_key:
+            styled = f"{industry}{VARIANT_SEP}{industry_key[len(STYLE_PREFIX):]}"
+            if (Path(self.templates_dir) / f"{styled}.html").exists():
+                return styled
+        return industry
 
     def industry_for(self, business_data):
         """Classify a business row into an industry key."""
@@ -273,24 +350,60 @@ class EmailGenerator:
             email_html = self.template
             resolved_industry = None
         else:
-            resolved_industry = industry_key or self.industry_for(business_data)
-            email_html = self._load_industry_template(resolved_industry)
+            template_id = self.resolve_template(business_data, industry_key)
+            resolved_industry = industries.get(industry_of(template_id)).key
+            email_html = self._load_industry_template(template_id)
+
+        # What the scrape found, for copy that adapts to each business.
+        meta = template_meta(email_html)
+        industry_hero = self.asset_url(meta['hero']) if meta.get('hero') else ''
+        contact_first = first_name(business_data.get('contact_name', ''))
+        rating_value = _number(rating) if rating else None
+        reviews = self.clean_text(business_data.get('reviews_count', '')).strip('()')
+        reviews_value = _number(reviews) if reviews else None
+        reviews_text = f"{int(reviews_value):,}" if reviews_value else ''
+        if rating_value and reviews_value:
+            review_summary = (f"{rating_value:g}★ from {reviews_text} Google "
+                              f"review{'s' if reviews_value != 1 else ''}")
+        elif rating_value:
+            review_summary = f"{rating_value:g}★ on Google"
+        else:
+            review_summary = ''
+        has_site = self.has_website(website)
 
         email_html = apply_conditionals(email_html, {
             'HERO_IMAGE': hero_image,
+            'INDUSTRY_HERO': industry_hero,
             'SENDER_ADDRESS': self.sender_address,
+            'CONTACT_NAME': contact_first,
+            'HAS_WEBSITE': has_site,
+            'NO_WEBSITE': not has_site,
+            'RATING': rating_value,
+            'STRONG_RATING': bool(rating_value and rating_value >= 4.5),
+            'REVIEWS': reviews_value,
+            'PHONE': phone,
         })
 
         replacements = {
+            '{{GREETING}}': (f"Hi {esc(contact_first)}," if contact_first
+                             else f"Hi {esc(business_name)} team,"),
+            '{{FIRST_NAME}}': esc(contact_first) or 'there',
             '{{BUSINESS_NAME}}': esc(business_name),
             '{{CATEGORY}}': esc(category),
             '{{LOCATION}}': esc(location),
+            '{{CITY}}': esc(location),
             '{{ADDRESS}}': esc(address) if address else 'Your Location',
             '{{CURRENT_WEBSITE_NOTE}}': website_note,
             '{{RATING_INFO}}': rating_info,
             '{{CONTACT_INFO}}': contact_info,
+            '{{RATING}}': esc(f"{rating_value:g}") if rating_value else '',
+            '{{REVIEWS_COUNT}}': esc(reviews_text),
+            '{{REVIEW_SUMMARY}}': esc(review_summary),
+            '{{PHONE}}': esc(phone or ''),
+            '{{WEBSITE_DOMAIN}}': esc(website_domain(website)) if has_site else '',
             '{{FROM_EMAIL}}': esc(self.from_email),
             '{{HERO_IMAGE}}': esc(hero_image) if hero_image else _TRANSPARENT_PX,
+            '{{INDUSTRY_HERO}}': esc(industry_hero) if industry_hero else _TRANSPARENT_PX,
             '{{SENDER_NAME}}': esc(self.sender_name),
             '{{SENDER_ADDRESS}}': esc(self.sender_address),
             '{{UNSUBSCRIBE_URL}}': esc(unsubscribe_link(self.from_email, self.unsubscribe_url)),
@@ -305,6 +418,10 @@ class EmailGenerator:
 
         for placeholder, value in replacements.items():
             email_html = email_html.replace(placeholder, value)
+
+        # The subject comment holds HTML-escaped values; mail headers are text.
+        subject = template_meta(email_html).get('subject', '')
+        self.last_subject = html_lib.unescape(subject)
         
         # Generate filename
         safe_name = re.sub(r'[^\w\s-]', '', business_name.lower())
