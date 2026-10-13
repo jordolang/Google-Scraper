@@ -11,6 +11,21 @@ The bump is driven by the commit subject: `feat:` is a feature, everything else
 (`fix:`, `docs:`, `chore:`, `refactor:`…) is a fix-level change. See
 [Versioning](README.md#️-versioning) for the full rules.
 
+## [1.10] - 2026-10-13
+
+### Added
+- Mac .dmg installer and Application Support folder
+- website preview image per business from Higgsfield
+- better deliverability, redesigned templates and hosted email images
+- fill in missing phones and emails from other sources automatically
+- make the app free by removing licensing and payments
+
+### Fixed
+- send Supabase sb_secret_ keys only in the apikey header
+
+### Changed
+- expect the Mac workflow to publish the .dmg alongside the zip
+
 ## [1.9] - 2026-08-25
 
 ### Added
