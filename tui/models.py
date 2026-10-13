@@ -188,6 +188,7 @@ class Business:
             "website": self.website,
             "category": self.category,
             "rating": self.rating,
+            "reviews_count": self.reviews_count,
             "url": self.url,
         }
 

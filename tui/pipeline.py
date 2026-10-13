@@ -760,6 +760,17 @@ class LivePipeline(Pipeline):
                 on_event(ScanEvent(idx, total, name, status="skipped"))
             time.sleep(self.scan_delay)
 
+    def _asset_url(self):
+        """Template banner images: your image host when set up, else the
+        public copy (see email_assets)."""
+        if getattr(self, "_asset_resolver", None) is None:
+            import email_assets
+            from image_host import ImageHost
+
+            self._asset_resolver = email_assets.hosted_resolver(
+                ImageHost(url=self.image_host_url, bucket=self.image_host_bucket))
+        return self._asset_resolver
+
     def build_message(
         self,
         business: Business,
@@ -779,6 +790,7 @@ class LivePipeline(Pipeline):
             sender_name=self.from_name,
             sender_address=self.sender_address,
             unsubscribe_url=unsubscribe or self.unsubscribe_url,
+            asset_url=self._asset_url(),
         )
         html, _filename, email = generator.generate_email(
             business.to_generator_row(),
@@ -786,7 +798,7 @@ class LivePipeline(Pipeline):
             pricing=pricing,
             hero_image=hero_image or business.hero_image,
         )
-        subject = self._sender().generate_subject_line(
+        subject = generator.last_subject or self._sender().generate_subject_line(
             business.name, business.category
         )
         to_email = email or business.primary_email
@@ -1142,6 +1154,7 @@ class DemoPipeline(Pipeline):
                 pricing=pricing,
                 hero_image=hero_image or business.hero_image,
             )
+            subject = generator.last_subject or subject
         except OSError:
             location = (
                 business.address.split(",")[1].strip()

@@ -184,6 +184,7 @@ RUNTIME_IMPORTS = (
     "deliverability",
     "image_host",
     "opt_outs",
+    "email_assets",
     "site_preview",
     "uuid",
     "urllib.parse",
