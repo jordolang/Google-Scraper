@@ -189,6 +189,14 @@ class EmailCampaigns(QWidget):
         self.daily_limit.setValue(int(settings.get("daily_limit", 50)))
         self.daily_limit.setSuffix(" emails/day")
 
+        self.test_email = QLineEdit(str(
+            settings.get("test_email") or settings.get("reply_to")
+            or settings.get("from_email") or ""))
+        self.test_email.setPlaceholderText("you@yourdomain.com")
+        self.test_email.setToolTip(
+            "Where Send Test Email goes. Use an inbox you check — ideally a "
+            "different provider (e.g. Gmail) to see how it lands for a business.")
+
         for label, widget in (
             ("Campaign Name", self.campaign_name),
             ("From Email", self.from_email),
@@ -212,12 +220,25 @@ class EmailCampaigns(QWidget):
             ("Send Method", self.send_method),
             ("Delay Between Emails", self.delay),
             ("Daily Send Limit", self.daily_limit),
+            ("Send Test To (your inbox)", self.test_email),
         ):
             card.add(Field(label, widget))
 
         self.preview_button = button("Preview Email")
         self.preview_button.clicked.connect(self.preview)
-        card.add(self.preview_button)
+        self.test_button = button("✉  Send Test to Me", "Primary")
+        self.test_button.setToolTip(
+            "Final check before the campaign: sends ONE real email to the "
+            "Send Test To address, composed exactly as the highlighted (or "
+            "first selected) business would get it — same subject, template, "
+            "website preview, header and footer. Draws the preview first if "
+            "that box is ticked. No business is emailed and nothing is logged "
+            "as outreach.")
+        self.test_button.clicked.connect(self.send_test)
+        actions = QHBoxLayout()
+        actions.addWidget(self.preview_button, 1)
+        actions.addWidget(self.test_button, 1)
+        card.add_layout(actions)
         card.body().addStretch(1)
         return card
 
@@ -303,6 +324,7 @@ class EmailCampaigns(QWidget):
         self.send_button.setEnabled(bool(chosen) and not self.runner.running)
         self.previews_button.setEnabled(bool(chosen) and not self.runner.running)
         self.preview_button.setEnabled(bool(chosen))
+        self.test_button.setEnabled(bool(chosen) and not self.runner.running)
         for key, value in self.state.campaign_stats.items():
             if key in self.stat_widgets and self.stat_widgets[key].value.text() != "—":
                 self.stat_widgets[key].set_value(value)
@@ -331,6 +353,7 @@ class EmailCampaigns(QWidget):
             dry_run=self.send_method.currentIndex() == 1,
             email_image=self.email_image.text().strip(),
             auto_previews=self.auto_previews.isChecked(),
+            test_email=self.test_email.text().strip(),
         )
 
     def _upload_image(self) -> None:
@@ -373,10 +396,11 @@ class EmailCampaigns(QWidget):
         self._save_settings()
         self.state.log("email", f"Uploaded {Path(path).name} → {url}")
 
-    def _build_message(self, lead: Lead, pipeline):
+    def _build_message(self, lead: Lead, pipeline, *, unsubscribe_for: str = ""):
         message = pipeline.build_message(
             lead.business, industry_key=self.template.currentData() or None,
-            hero_image=lead.business.hero_image or self.email_image.text().strip())
+            hero_image=lead.business.hero_image or self.email_image.text().strip(),
+            unsubscribe_for=unsubscribe_for)
         subject = self.subject.text().strip()
         if subject:
             message.subject = subject.replace("{business}", lead.business.name)
@@ -475,6 +499,83 @@ class EmailCampaigns(QWidget):
 
         self.runner.start(job)
 
+    def _send_password(self) -> Optional[str]:
+        """The Resend key or SMTP password for a live send; None if unavailable."""
+        if self.state.settings.get("send_via") == "resend":
+            services.runtime.load_env()
+            key = os.environ.get("RESEND_API_KEY", "")
+            if not key:
+                QMessageBox.warning(
+                    self, "No Resend API key",
+                    "Sending is set to Resend, but no API key is saved. Add it "
+                    "under Settings → Deliverability, or switch Send With back "
+                    "to your email account.")
+                return None
+            return key
+        password = self.state.password
+        if not password:
+            password, ok = QInputDialog.getText(
+                self, "SMTP password",
+                "App-specific password for "
+                f"{self.state.settings.get('smtp_username') or self.from_email.text()}:",
+                QLineEdit.Password)
+            if not ok or not password:
+                return None
+            self.state.password = password
+        return password
+
+    def _test_lead(self) -> Optional[Lead]:
+        """The highlighted business if it is selected, else the first selected one."""
+        chosen = self.chosen()
+        row = self.table.currentRow()
+        if 0 <= row < len(self._recipients) and self._recipients[row].selected:
+            return self._recipients[row]
+        return chosen[0] if chosen else None
+
+    def send_test(self) -> None:
+        """Send one real copy of the final email to your own inbox."""
+        if self.runner.running:
+            return
+        lead = self._test_lead()
+        if lead is None:
+            return
+        to_email = self.test_email.text().strip()
+        if "@" not in to_email:
+            QMessageBox.warning(
+                self, "Where should the test go?",
+                "Enter your own email address under Send Test To.")
+            self.test_email.setFocus()
+            return
+        self._save_settings()
+        demo = bool(self.state.settings.get("demo_mode"))
+        password = "" if demo else self._send_password()
+        if password is None:
+            return
+        need_preview = (self.auto_previews.isChecked()
+                        and not lead.business.hero_image)
+        if need_preview and not self._previews_ready():
+            return
+
+        pipeline = self.state.make_pipeline()
+        self._set_running(True)
+        self.progress.setRange(0, 0)  # busy: one email, maybe one preview
+        self.progress.setVisible(True)
+        self.state.set_status("Sending test email…")
+        self.state.log(
+            "email", f"Test email for {lead.business.name} → {to_email}"
+            + (" (drawing its website preview first)" if need_preview else ""))
+        build = self._build_message
+
+        def job(progress, on_event):
+            if need_preview:
+                pipeline.make_previews([lead.business], progress=progress)
+            progress(f"Composing the email for {lead.business.name}…")
+            message = build(lead, pipeline, unsubscribe_for=to_email)
+            return pipeline.send_test(message, to_email, password=password,
+                                      progress=progress)
+
+        self.runner.start(job)
+
     def send(self) -> None:
         if self.runner.running:
             return
@@ -495,28 +596,10 @@ class EmailCampaigns(QWidget):
             chosen = chosen[:limit]
 
         password = ""
-        resend = self.state.settings.get("send_via") == "resend"
-        if not dry_run and resend:
-            services.runtime.load_env()
-            password = os.environ.get("RESEND_API_KEY", "")
-            if not password:
-                QMessageBox.warning(
-                    self, "No Resend API key",
-                    "Sending is set to Resend, but no API key is saved. Add it "
-                    "under Settings → Deliverability, or switch Send With back "
-                    "to your email account.")
-                return
         if not dry_run:
-            password = password or self.state.password
-            if not password:
-                password, ok = QInputDialog.getText(
-                    self, "SMTP password",
-                    "App-specific password for "
-                    f"{self.state.settings.get('smtp_username') or self.from_email.text()}:",
-                    QLineEdit.Password)
-                if not ok or not password:
-                    return
-                self.state.password = password
+            password = self._send_password()
+            if password is None:
+                return
             confirm = QMessageBox.question(
                 self, "Send for real?",
                 f"This sends {len(chosen)} email(s) from "
@@ -562,6 +645,7 @@ class EmailCampaigns(QWidget):
 
     def _set_running(self, running: bool) -> None:
         self.send_button.setEnabled(not running and bool(self.chosen()))
+        self.test_button.setEnabled(not running and bool(self.chosen()))
         self.previews_button.setEnabled(not running and bool(self.chosen()))
         self.stop_button.setEnabled(running)
         self.import_button.setEnabled(not running)
@@ -586,6 +670,9 @@ class EmailCampaigns(QWidget):
                 self, "Previews ready",
                 f"Made {made} website preview(s). Preview Email shows the first one.")
             return
+        if stats.get("test"):
+            self._on_test_finished(stats)
+            return
         sent = int(stats.get("sent", 0))
         self.state.campaign_stats["sent"] += sent
         self.state.campaign_stats["delivered"] += sent
@@ -602,6 +689,27 @@ class EmailCampaigns(QWidget):
                 "password on the Settings page.")
         else:
             QMessageBox.information(self, "Campaign finished", summary)
+
+    def _on_test_finished(self, stats: dict) -> None:
+        """A test send never touches campaign stats or the emailed flags."""
+        # A preview may have been drawn for the business; show it in the grid.
+        self.refresh()
+        self.state.leads_changed.emit()
+        if stats.get("sent"):
+            self.state.log("email", f"Test email sent to {stats.get('to')}")
+            QMessageBox.information(
+                self, "Test email sent",
+                f"Sent to {stats.get('to')}, composed for {stats.get('business')}.\n\n"
+                f"Subject: {stats.get('subject')}\n\n"
+                "Check your inbox (and spam folder). If it looks right, press "
+                "Send Emails to send the campaign. No business was emailed.")
+            return
+        problem = stats.get("error") or "the server did not accept the message"
+        self.state.log("email", f"Test email failed: {problem}")
+        QMessageBox.warning(
+            self, "Test email not sent",
+            f"{problem}\n\nCheck the account and app-specific password on the "
+            "Settings page.")
 
     def _on_cancelled(self) -> None:
         """A stopped campaign still delivered some mail; show that it counted.

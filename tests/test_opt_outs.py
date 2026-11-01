@@ -154,3 +154,36 @@ def test_without_the_table_emails_fall_back_to_the_shared_link(pipeline):
     msg = pipeline.build_message(Business(name="A", emails=["a@x.com"]))
     assert msg.unsubscribe_url == ""
     assert 'href="https://jlang.dev/unsubscribe"' in msg.html
+
+
+def test_test_send_goes_only_to_you_and_logs_nothing(pipeline):
+    business = Business(name="Bright Spark", category="Electrician",
+                        emails=["owner@brightspark.com"])
+    msg = pipeline.build_message(business, unsubscribe_for="me@mine.com")
+    # The test copy's unsubscribe link is the tester's, never the business's.
+    assert "me@mine.com" in pipeline.table.rows
+    assert "owner@brightspark.com" not in pipeline.table.rows
+    assert msg.to_email == "owner@brightspark.com"
+
+    fake_sender = mock.Mock(smtp_server="s", smtp_port=1)
+    fake_sender.connect.return_value = True
+    fake_sender.send_email.return_value = True
+    with mock.patch.object(LivePipeline, "_sender", return_value=fake_sender), \
+            mock.patch.object(LivePipeline, "record_outreach") as record:
+        stats = pipeline.send_test(msg, "me@mine.com", password="pw")
+    args = fake_sender.send_email.call_args
+    assert args.args[0] == "me@mine.com"
+    assert args.args[1] == msg.subject and args.args[2] == msg.html
+    assert stats["sent"] == 1 and stats["test"]
+    record.assert_not_called()
+    assert not business.emailed
+    fake_sender.disconnect.assert_called_once()
+
+
+def test_test_send_needs_an_address(pipeline):
+    msg = EmailMessage(business=Business(name="A"), to_email="a@x.com", subject="s", html="h")
+    fake_sender = mock.Mock()
+    with mock.patch.object(LivePipeline, "_sender", return_value=fake_sender):
+        stats = pipeline.send_test(msg, "", password="pw")
+    assert stats["sent"] == 0 and "address" in stats["error"]
+    fake_sender.connect.assert_not_called()

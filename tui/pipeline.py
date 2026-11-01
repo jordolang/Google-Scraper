@@ -467,7 +467,24 @@ class Pipeline:
         industry_key: Optional[str] = None,
         pricing: Optional[dict] = None,
         hero_image: str = "",
+        unsubscribe_for: str = "",
     ) -> EmailMessage:
+        raise NotImplementedError
+
+    def send_test(
+        self,
+        message: EmailMessage,
+        to_email: str,
+        *,
+        password: str,
+        progress: ProgressFn = _noop,
+    ) -> dict:
+        """Send one composed message to your own inbox, exactly as it would go out.
+
+        Same template, subject, preview image, sender, headers and footer as
+        the real send; only the recipient differs. Nothing is recorded as
+        outreach and the business is not marked as emailed.
+        """
         raise NotImplementedError
 
     def send(
@@ -778,10 +795,13 @@ class LivePipeline(Pipeline):
         industry_key: Optional[str] = None,
         pricing: Optional[dict] = None,
         hero_image: str = "",
+        unsubscribe_for: str = "",
     ) -> EmailMessage:
         from generate_emails import EmailGenerator
 
-        unsubscribe = self._unsubscribe_link(business.primary_email)
+        # A test copy carries the tester's own unsubscribe link, so clicking
+        # it while checking the email can't opt the real business out.
+        unsubscribe = self._unsubscribe_link(unsubscribe_for or business.primary_email)
         # Per-industry mode: no single template_path, render from templates_dir.
         generator = EmailGenerator(
             output_dir="generated_emails",
@@ -867,6 +887,42 @@ class LivePipeline(Pipeline):
         progress(
             f"Done. sent={stats['sent']} failed={stats['failed']} skipped={stats['skipped']}"
         )
+        return stats
+
+
+    def send_test(
+        self,
+        message: EmailMessage,
+        to_email: str,
+        *,
+        password: str,
+        progress: ProgressFn = _noop,
+    ) -> dict:
+        stats = {"sent": 0, "failed": 0, "skipped": 0, "total": 1, "test": True,
+                 "to": to_email, "subject": message.subject,
+                 "business": message.business.name}
+        if not to_email or "@" not in to_email:
+            stats["error"] = "no valid test address"
+            return stats
+        sender = self._sender()
+        progress(f"Connecting to {sender.smtp_server}:{sender.smtp_port}…")
+        if not sender.connect(password):
+            progress("❌ Resend API key rejected." if self.send_via == "resend"
+                     else "❌ SMTP connection/authentication failed.")
+            stats["error"] = "authentication failed"
+            return stats
+        try:
+            progress(f"TEST → {to_email}  ({message.subject})  "
+                     f"as composed for {message.business.name}")
+            ok = sender.send_email(
+                to_email, message.subject, message.html, message.business.name,
+                unsubscribe_url=message.unsubscribe_url or None,
+            )
+        finally:
+            sender.disconnect()
+        stats["sent" if ok else "failed"] += 1
+        progress("✓ Test email sent — check your inbox." if ok
+                 else "❌ The test email was not accepted.")
         return stats
 
 
@@ -1133,6 +1189,7 @@ class DemoPipeline(Pipeline):
         industry_key: Optional[str] = None,
         pricing: Optional[dict] = None,
         hero_image: str = "",
+        unsubscribe_for: str = "",
     ) -> EmailMessage:
         subject = f"Transform {business.name}'s Online Presence"
         # Render the real industry template so the demo previews exactly what
@@ -1204,6 +1261,25 @@ class DemoPipeline(Pipeline):
         progress(
             f"[demo] done. sent={stats['sent']} failed={stats['failed']} skipped={stats['skipped']}"
         )
+        return stats
+
+    def send_test(
+        self,
+        message: EmailMessage,
+        to_email: str,
+        *,
+        password: str,
+        progress: ProgressFn = _noop,
+    ) -> dict:
+        stats = {"sent": 0, "failed": 0, "skipped": 0, "total": 1, "test": True,
+                 "to": to_email, "subject": message.subject,
+                 "business": message.business.name}
+        if not to_email or "@" not in to_email:
+            stats["error"] = "no valid test address"
+            return stats
+        progress(f"[demo] TEST → {to_email}  ({message.subject})  "
+                 f"as composed for {message.business.name}")
+        stats["sent"] = 1
         return stats
 
 
