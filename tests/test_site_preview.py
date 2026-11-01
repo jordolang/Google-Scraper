@@ -160,7 +160,7 @@ class FakeHost:
 
     def upload_bytes(self, data, name, content_type=""):
         self.uploads.append((data, name, content_type))
-        return f"https://x.supabase.co/storage/v1/object/public/email-images/{name}"
+        return f"https://store.public.blob.vercel-storage.com/email-images/{name}"
 
 
 def test_maker_rehosts_the_image_and_sets_hero_image():
@@ -169,7 +169,7 @@ def test_maker_rehosts_the_image_and_sets_hero_image():
     b = business()
     url = PreviewMaker(HiggsfieldClient("id", "s", session=session), host).make(b)
     assert host.uploads == [(b"jpegbytes", "preview-bright-spark-electric.jpg", "image/jpeg")]
-    assert b.hero_image == url and "supabase.co" in url
+    assert b.hero_image == url and "blob.vercel-storage.com" in url
 
 
 def test_maker_without_a_host_keeps_the_higgsfield_link():

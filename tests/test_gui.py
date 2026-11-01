@@ -986,7 +986,7 @@ def test_api_keys_go_to_the_app_env_not_settings(tmp_path, monkeypatch):
     monkeypatch.setenv("LLSP_DATA_DIR", str(tmp_path))
     monkeypatch.delenv("RESEND_API_KEY", raising=False)
     (tmp_path / ".env").write_text("EMAIL_PASSWORD=keep\nRESEND_API_KEY=old\n")
-    path = runtime.save_env_values({"RESEND_API_KEY": "re_new", "SUPABASE_SERVICE_KEY": ""})
+    path = runtime.save_env_values({"RESEND_API_KEY": "re_new", "BLOB_READ_WRITE_TOKEN": ""})
     assert path.read_text().splitlines() == ["EMAIL_PASSWORD=keep", "RESEND_API_KEY=re_new"]
     import os
 

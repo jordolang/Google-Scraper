@@ -9,92 +9,116 @@ import send_emails
 from tui.models import Business, EmailMessage
 from tui.pipeline import LivePipeline
 
-URL = "https://abcd.supabase.co"
+SITE = "https://lead-optout.vercel.app"
+TOKEN = "vercel_blob_rw_Store123_fakesecret"
+SIGNING_KEY = "k1"
 
 
-class FakeTable:
-    """Just enough of PostgREST's outreach_recipients endpoint."""
+class FakeBlobList:
+    """The Vercel Blob list endpoint over a set of stored pathnames, in pages."""
 
-    def __init__(self, missing=False):
-        self.rows = {}
-        self.missing = missing
+    def __init__(self, page_size=2, status=200):
+        self.paths = set()
+        self.page_size = page_size
+        self.status = status
         self.calls = []
 
-    def request(self, method, url, headers=None, timeout=None, params=None, json=None):
-        self.calls.append((method, url, headers, params, json))
-        assert url == f"{URL}/rest/v1/outreach_recipients"
-        if self.missing:
-            return mock.Mock(status_code=404, text='{"code":"PGRST205"}')
-        if method == "POST":
-            assert headers["Prefer"].startswith("resolution=ignore-duplicates")
-            for row in json:
-                self.rows.setdefault(row["email"], {**row, "unsubscribed_at": None})
-            return mock.Mock(status_code=201, text="")
-        if "token" in params["select"]:
-            email = params["email"].removeprefix("eq.")
-            found = [r for r in self.rows.values() if r["email"] == email]
-        else:
-            wanted = params["email"].removeprefix("in.(").removesuffix(")")
-            wanted = {e.strip('"') for e in wanted.split(",")}
-            found = [r for r in self.rows.values()
-                     if r["email"] in wanted and r["unsubscribed_at"]]
-        return mock.Mock(status_code=200, json=lambda: found, text="")
+    def unsubscribe(self, email):
+        """What the vercel/ function stores when ``email`` clicks their link."""
+        self.paths.add(f"optouts/{opt_outs.fingerprint(email)}.json")
+
+    def request(self, method, url, params=None, timeout=None, headers=None, **_):
+        self.calls.append((method, params, headers))
+        if self.status >= 300:
+            return mock.Mock(status_code=self.status, text="Access denied")
+        assert method == "GET" and params["prefix"] == "optouts/"
+        names = sorted(p for p in self.paths if p.startswith(params["prefix"]))
+        start = int(params.get("cursor") or 0)
+        chunk = names[start:start + self.page_size]
+        more = start + self.page_size < len(names)
+        body = {"blobs": [{"pathname": p} for p in chunk],
+                "hasMore": more, "cursor": str(start + self.page_size) if more else None}
+        return mock.Mock(status_code=200, json=lambda: body, text="")
 
 
-def make_list(table, key="sb_secret_abc"):
-    optouts = opt_outs.OptOutList(url=URL, key=key)
-    optouts._session = table
+def make_list(blobs=None, secret=SIGNING_KEY, url=SITE):
+    optouts = opt_outs.OptOutList(url=url, secret=secret, token=TOKEN)
+    optouts.store._session = blobs or FakeBlobList()
     return optouts
 
 
-def test_each_recipient_gets_their_own_stable_link():
-    table = FakeTable()
-    optouts = make_list(table)
-    link = optouts.link_for("Owner@Shop.com ")
-    assert link.startswith(f"{URL}/functions/v1/unsubscribe?t=")
-    assert table.rows["owner@shop.com"]["token"] == link.split("t=", 1)[1]
-    # A fresh client (a later campaign) reuses the saved token.
-    assert make_list(table).link_for("owner@shop.com") == link
-    assert make_list(table).link_for("info@bakery.com") != link
+def test_each_recipient_gets_their_own_stable_signed_link():
+    link = make_list().link_for("Owner@Shop.com ")
+    digest = opt_outs.fingerprint("owner@shop.com")
+    assert link == (f"{SITE}/api/unsubscribe?h={digest}"
+                    f"&s={opt_outs.sign(SIGNING_KEY, digest)}")
+    # The address itself never appears in the link.
+    assert "owner" not in link and "shop.com" not in link
+    # A later campaign makes the same link; another address a different one.
+    assert make_list().link_for("owner@shop.com") == link
+    assert make_list().link_for("info@bakery.com") != link
+    # Another secret signs differently, so links can't be forged without it.
+    assert make_list(secret="other").link_for("owner@shop.com") != link
 
 
-def test_secret_keys_stay_out_of_authorization():
-    table = FakeTable()
-    make_list(table, key="sb_secret_abc").link_for("a@b.com")
-    assert "Authorization" not in table.calls[0][2]
-    make_list(table, key="eyJhbGciOi.legacy").link_for("a@b.com")
-    assert table.calls[-1][2]["Authorization"] == "Bearer eyJhbGciOi.legacy"
+def test_signature_matches_the_vercel_function():
+    # The same vector is checked in vercel/test/unsubscribe.test.js.
+    digest = opt_outs.fingerprint("Owner@Shop.com ")
+    assert digest == "231af1e209e7597ff54ab1b3fc35b00c961f870a0220dbe351166d2f6d3f3296"
+    assert opt_outs.sign("k1", digest) == "68120365eee8e58a1ef4f290cf0d6c24"
 
 
-def test_opted_out_reports_only_unsubscribed_addresses():
-    table = FakeTable()
-    optouts = make_list(table)
-    optouts.link_for("gone@x.com")
-    optouts.link_for("still@x.com")
-    table.rows["gone@x.com"]["unsubscribed_at"] = "2026-10-13T00:00:00Z"
+def test_making_links_needs_no_network():
+    blobs = FakeBlobList()
+    make_list(blobs).link_for("a@b.com")
+    assert blobs.calls == []
+
+
+def test_opted_out_reports_only_unsubscribed_addresses_across_pages():
+    blobs = FakeBlobList(page_size=2)
+    for email in ("gone@x.com", "other1@y.com", "other2@y.com", "other3@y.com"):
+        blobs.unsubscribe(email)
+    optouts = make_list(blobs)
     assert optouts.opted_out(["GONE@x.com", "still@x.com", "new@x.com", ""]) == {"gone@x.com"}
+    assert len(blobs.calls) == 2  # followed the cursor to the second page
+    assert blobs.calls[0][2]["authorization"] == f"Bearer {TOKEN}"
 
 
-def test_missing_table_is_reported_as_not_set_up():
+def test_nothing_to_check_means_no_request():
+    blobs = FakeBlobList()
+    assert make_list(blobs).opted_out(["", "  "]) == set()
+    assert blobs.calls == []
+
+
+def test_unreadable_list_is_an_error_not_an_empty_list():
+    with pytest.raises(opt_outs.OptOutError, match="refused the token"):
+        make_list(FakeBlobList(status=403)).opted_out(["a@b.com"])
+
+
+@pytest.mark.parametrize("url,secret", [("", SIGNING_KEY), (SITE, ""), ("http://x", SIGNING_KEY)])
+def test_incomplete_setup_says_so(url, secret, monkeypatch):
+    monkeypatch.delenv(opt_outs.URL_ENV, raising=False)
+    monkeypatch.delenv(opt_outs.SECRET_ENV, raising=False)
+    optouts = make_list(url=url, secret=secret)
+    assert not optouts.configured()
     with pytest.raises(opt_outs.OptOutsNotSetUp):
-        make_list(FakeTable(missing=True)).link_for("a@b.com")
+        optouts.link_for("a@b.com")
 
 
-def test_unconfigured_list_says_so(monkeypatch):
-    monkeypatch.delenv("SUPABASE_URL", raising=False)
-    monkeypatch.delenv("SUPABASE_SERVICE_KEY", raising=False)
-    assert not opt_outs.OptOutList().configured()
+def test_new_secrets_are_long_and_different():
+    first, second = opt_outs.new_secret(), opt_outs.new_secret()
+    assert first != second and len(first) >= 40
 
 
 # ----------------------------------------------------------------- pipeline
 @pytest.fixture
 def pipeline(tmp_path):
-    pipe = LivePipeline(data_root=tmp_path, image_host_url=URL,
+    pipe = LivePipeline(data_root=tmp_path, unsubscribe_site=SITE,
                         templates_dir="email_templates")
-    table = FakeTable()
-    pipe._opt_out_list = make_list(table)
+    blobs = FakeBlobList()
+    pipe._opt_out_list = make_list(blobs)
     pipe._opt_outs_missing = False
-    pipe.table = table
+    pipe.blobs = blobs
     return pipe
 
 
@@ -102,9 +126,9 @@ def test_email_carries_the_recipients_link_in_footer_and_header(pipeline):
     business = Business(name="Bright Spark", category="Electrician",
                         emails=["owner@brightspark.com"])
     msg = pipeline.build_message(business)
-    link = pipeline.table.rows["owner@brightspark.com"]["token"]
-    assert msg.unsubscribe_url.endswith(f"?t={link}")
-    assert f'href="{msg.unsubscribe_url}"' in msg.html
+    digest = opt_outs.fingerprint("owner@brightspark.com")
+    assert msg.unsubscribe_url.startswith(f"{SITE}/api/unsubscribe?h={digest}&s=")
+    assert f'href="{msg.unsubscribe_url}"' in msg.html.replace("&amp;", "&")
 
     sender = send_emails.ResendSender(from_email="jordan@jlang.dev")
     sender.connect("re_123")
@@ -122,8 +146,7 @@ def test_unsubscribed_recipients_are_skipped(pipeline):
         EmailMessage(business=Business(name=name), to_email=email, subject="s", html="h")
         for name, email in [("Gone", "gone@x.com"), ("Here", "here@x.com")]
     ]
-    pipeline.table.rows["gone@x.com"] = {
-        "email": "gone@x.com", "token": "t" * 22, "unsubscribed_at": "2026-10-13"}
+    pipeline.blobs.unsubscribe("gone@x.com")
     sent = []
     fake_sender = mock.Mock(smtp_server="s", smtp_port=1)
     fake_sender.connect.return_value = True
@@ -136,10 +159,7 @@ def test_unsubscribed_recipients_are_skipped(pipeline):
 
 
 def test_send_stops_if_the_unsubscribe_list_cannot_be_read(pipeline):
-    def unreachable(*_a, **_k):
-        raise opt_outs.OptOutError("Could not reach Supabase")
-
-    pipeline._opt_out_list.opted_out = unreachable
+    pipeline.blobs.status = 500
     msg = EmailMessage(business=Business(name="A"), to_email="a@x.com", subject="s", html="h")
     fake_sender = mock.Mock()
     with mock.patch.object(LivePipeline, "_sender", return_value=fake_sender):
@@ -148,8 +168,8 @@ def test_send_stops_if_the_unsubscribe_list_cannot_be_read(pipeline):
     fake_sender.connect.assert_not_called()
 
 
-def test_without_the_table_emails_fall_back_to_the_shared_link(pipeline):
-    pipeline.table.missing = True
+def test_without_the_site_emails_fall_back_to_the_shared_link(pipeline):
+    pipeline._opt_out_list = make_list(url="")
     pipeline.unsubscribe_url = "https://jlang.dev/unsubscribe"
     msg = pipeline.build_message(Business(name="A", emails=["a@x.com"]))
     assert msg.unsubscribe_url == ""
@@ -161,8 +181,8 @@ def test_test_send_goes_only_to_you_and_logs_nothing(pipeline):
                         emails=["owner@brightspark.com"])
     msg = pipeline.build_message(business, unsubscribe_for="me@mine.com")
     # The test copy's unsubscribe link is the tester's, never the business's.
-    assert "me@mine.com" in pipeline.table.rows
-    assert "owner@brightspark.com" not in pipeline.table.rows
+    assert opt_outs.fingerprint("me@mine.com") in msg.unsubscribe_url
+    assert opt_outs.fingerprint("owner@brightspark.com") not in msg.unsubscribe_url
     assert msg.to_email == "owner@brightspark.com"
 
     fake_sender = mock.Mock(smtp_server="s", smtp_port=1)

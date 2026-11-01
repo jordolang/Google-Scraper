@@ -322,7 +322,7 @@ def main(argv=None) -> int:
     maker = PreviewMaker(HiggsfieldClient(model=args.model))
     if not maker.hosts_images:
         print("Note: no image host set, so links expire in 7 days. "
-              "Set SUPABASE_URL and SUPABASE_SERVICE_KEY to keep them.")
+              "Set BLOB_READ_WRITE_TOKEN (Vercel Blob) to keep them.")
     made = 0
     for row in rows:
         if not row.get("name") or (row.get("preview_image") and not args.redo):

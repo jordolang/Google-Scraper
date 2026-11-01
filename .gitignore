@@ -123,3 +123,10 @@ licenses.db-wal
 licenses.db-shm
 license.json
 *.licence-key
+
+# Vercel unsubscribe site
+vercel/node_modules/
+vercel/.vercel/
+!vercel/package.json
+!vercel/package-lock.json
+!vercel/vercel.json

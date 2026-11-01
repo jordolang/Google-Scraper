@@ -1,0 +1,15 @@
+{
+  "name": "lead-unsubscribe",
+  "private": true,
+  "description": "One-click unsubscribe endpoint for Local Lead Scraper Pro outreach email.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@vercel/blob": "2.8.2"
+  }
+}

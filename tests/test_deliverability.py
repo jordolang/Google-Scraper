@@ -139,44 +139,76 @@ def test_free_mailbox_gets_advice_not_dns():
 
 
 # --------------------------------------------------------------- images
-def test_image_host_uploads_and_returns_the_public_url(tmp_path, monkeypatch):
+TOKEN = "vercel_blob_rw_Store123_fakesecret"
+
+
+class FakeBlob:
+    """Just enough of the Vercel Blob API: PUT stores, GET lists."""
+
+    def __init__(self, status=200, text=""):
+        self.calls = []
+        self.status = status
+        self.text = text
+
+    def request(self, method, url, params=None, timeout=None, data=None, headers=None):
+        self.calls.append(dict(method=method, url=url, params=params, data=data,
+                               headers=headers))
+        if self.status >= 300:
+            return mock.Mock(status_code=self.status, text=self.text)
+        path = params["pathname"]
+        body = {"url": f"https://store123.public.blob.vercel-storage.com/{path}",
+                "pathname": path}
+        return mock.Mock(status_code=200, json=lambda: body, text="")
+
+
+def test_image_host_uploads_and_returns_the_public_url(tmp_path):
     image = tmp_path / "Shop Front.PNG"
     image.write_bytes(b"\x89PNG fake")
-    calls = {}
-
-    def fake_post(url, data, headers, timeout):
-        calls.update(url=url, headers=headers, data=data)
-        return mock.Mock(status_code=200, text="{}")
-
-    import requests
-
-    monkeypatch.setattr(requests, "post", fake_post)
-    host = image_host.ImageHost(url="https://abcd.supabase.co/", key="k", bucket="email-images")
+    host = image_host.ImageHost(token=TOKEN, folder="email-images")
+    fake = host.store._session = FakeBlob()
     url = host.upload_file(image)
-    path = calls["url"].split("/object/email-images/", 1)[1]
-    assert url == f"https://abcd.supabase.co/storage/v1/object/public/email-images/{path}"
-    assert path.endswith(".png") and "shop-front-" in path
-    assert calls["headers"]["Authorization"] == "Bearer k"
-    assert calls["headers"]["Content-Type"] == "image/png"
-    image_host.ImageHost(url="https://abcd.supabase.co", key="sb_secret_x").upload_file(image)
-    assert "Authorization" not in calls["headers"]
-    assert calls["headers"]["apikey"] == "sb_secret_x"
+    call = fake.calls[0]
+    path = call["params"]["pathname"]
+    assert call["method"] == "PUT" and call["url"] == "https://vercel.com/api/blob/"
+    assert path.startswith("email-images/") and path.endswith(".png")
+    assert "shop-front-" in path
+    assert url == f"https://store123.public.blob.vercel-storage.com/{path}"
+    headers = call["headers"]
+    assert headers["authorization"] == f"Bearer {TOKEN}"
+    assert headers["x-vercel-blob-store-id"] == "Store123"
+    assert headers["x-vercel-blob-access"] == "public"
+    assert headers["x-content-type"] == "image/png"
+    assert headers["x-add-random-suffix"] == "0"
+    assert host.identity == "vercel-blob:Store123"
 
 
-def test_image_host_explains_its_failures(tmp_path):
+def test_image_host_reads_the_token_from_the_environment(monkeypatch):
+    monkeypatch.setenv("BLOB_READ_WRITE_TOKEN", f'"{TOKEN}"')
+    assert image_host.ImageHost().configured()
+    monkeypatch.setenv("BLOB_READ_WRITE_TOKEN", "sb_secret_from_supabase")
+    assert not image_host.ImageHost().configured()
+
+
+def test_image_host_explains_its_failures(tmp_path, monkeypatch):
+    monkeypatch.delenv("BLOB_READ_WRITE_TOKEN", raising=False)
     image = tmp_path / "a.png"
     image.write_bytes(b"x")
     with pytest.raises(image_host.ImageHostError, match="not set up"):
-        image_host.ImageHost(url="", key="", bucket="b").upload_file(image)
+        image_host.ImageHost().upload_file(image)
     bad = tmp_path / "a.bmp"
     bad.write_bytes(b"x")
-    host = image_host.ImageHost(url="https://a.supabase.co", key="k")
+    host = image_host.ImageHost(token=TOKEN)
     with pytest.raises(image_host.ImageHostError, match="PNG, JPG"):
         host.upload_file(bad)
     with pytest.raises(image_host.ImageHostError, match="does not exist"):
         host.upload_file(tmp_path / "missing.png")
+    host.store._session = FakeBlob(status=403, text="Access denied, please provide a valid token")
+    with pytest.raises(image_host.ImageHostError, match="refused the token"):
+        host.upload_file(image)
 
 
 def test_image_host_maps_status_codes_to_fixes():
-    assert "sb_secret_" in image_host.explain(401, "", "b")
-    assert "New bucket" in image_host.explain(404, "Bucket not found", "email-images")
+    assert "vercel_blob_rw_" in image_host.explain(401, "")
+    assert "Public access" in image_host.explain(403, "Cannot use public access on a private store")
+    assert "Storage" in image_host.explain(404, "store_not_found")
+    assert "wait a minute" in image_host.explain(429, "")
