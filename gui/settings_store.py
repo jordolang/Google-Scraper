@@ -61,6 +61,8 @@ DEFAULTS: Dict[str, Any] = {
     "preview_model": "",
     "auto_previews": False,
     "reply_to": "",
+    # Where "Send Test Email to Me" goes ("" = Reply To, then From).
+    "test_email": "",
     "smtp_username": "",
     "smtp_server": "",
     "smtp_port": 0,

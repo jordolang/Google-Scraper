@@ -416,6 +416,27 @@ def test_dry_run_composes_without_sending(window):
     assert any("DRY RUN" in line for line in window.state.log_lines)
 
 
+def test_test_email_goes_to_you_without_touching_the_campaign(window):
+    run_search(window, "Roofing Contractors")
+    window.pages["dashboard"]._set_all(True)
+    window.go_to("scraper")
+    window.pages["scraper"].start()
+    drain(window.pages["scraper"].runner)
+
+    window.go_to("outreach")
+    campaigns = window.pages["outreach"].campaigns
+    campaigns.send_method.setCurrentIndex(0)  # even with "Send for real" chosen
+    campaigns.auto_previews.setChecked(False)
+    campaigns.test_email.setText("me@example.com")
+    campaigns.send_test()
+    drain(campaigns.runner)
+
+    assert window.state.campaign_stats["sent"] == 0
+    assert not any(lead.business.emailed for lead in window.state.leads)
+    assert any("TEST → me@example.com" in line for line in window.state.log_lines)
+    assert window.state.settings.get("test_email") == "me@example.com"
+
+
 def test_call_scripts_walk_the_pitch(window):
     run_search(window, "Roofing Contractors")
     window.go_to("outreach")
