@@ -1,16 +1,20 @@
-"""Upload images to a public bucket so emails can show them by URL.
+"""Upload images to Vercel Blob so emails can show them by URL.
 
 Email clients will not show an image from your computer; it has to live at a
-public https address. This uploads to Supabase Storage (free tier is plenty)
-and hands back that address::
+public https address. This uploads to a Vercel Blob store and hands back that
+address::
 
-    host = ImageHost(url="https://abcd.supabase.co", key="…", bucket="email-images")
+    host = ImageHost(token="vercel_blob_rw_…")
     host.upload_file("~/Pictures/preview.png")
-    # 'https://abcd.supabase.co/storage/v1/object/public/email-images/2026/10/preview-3f9a1c.png'
+    # 'https://<store>.public.blob.vercel-storage.com/email-images/2026/10/preview-3f9a1c.png'
 
-The key is the project's secret key (``sb_secret_…``, or the legacy
-``service_role`` key), which can write to the bucket.
-It stays on this computer (in the app's ``.env``), never in an email.
+The token is the store's read-write token (``BLOB_READ_WRITE_TOKEN``, from
+Vercel → Storage → your Blob store). It stays on this computer, in the app's
+``.env``, and never goes into an email. The store must be **public** so the
+images can be shown to anyone who opens the email.
+
+:class:`BlobStore` is the small Vercel Blob client underneath; the unsubscribe
+list (:mod:`opt_outs`) uses it too.
 """
 
 from __future__ import annotations
@@ -21,12 +25,16 @@ import os
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Iterator, Optional
 
-URL_ENV = "SUPABASE_URL"
-KEY_ENV = "SUPABASE_SERVICE_KEY"
-BUCKET_ENV = "SUPABASE_BUCKET"
-DEFAULT_BUCKET = "email-images"
+TOKEN_ENV = "BLOB_READ_WRITE_TOKEN"
+FOLDER_ENV = "BLOB_FOLDER"
+DEFAULT_FOLDER = "email-images"
+
+API_URL = "https://vercel.com/api/blob"
+#: The Blob API version the official @vercel/blob SDK (2.x) speaks.
+API_VERSION = "13"
+TOKEN_PREFIX = "vercel_blob_rw_"
 
 #: What email clients reliably display.
 IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
@@ -39,17 +47,98 @@ class ImageHostError(RuntimeError):
     """An upload that did not work, with a message a person can act on."""
 
 
-class ImageHost:
-    def __init__(self, url: str = "", key: str = "", bucket: str = "") -> None:
-        self.url = (url or os.environ.get(URL_ENV, "")).strip().rstrip("/")
-        self.key = (key or os.environ.get(KEY_ENV, "")).strip()
-        self.bucket = (bucket or os.environ.get(BUCKET_ENV, "") or DEFAULT_BUCKET).strip()
+def store_id_from_token(token: str) -> str:
+    """``vercel_blob_rw_<storeId>_<secret>`` → ``<storeId>``."""
+    parts = (token or "").split("_")
+    return parts[3] if len(parts) > 4 and token.startswith(TOKEN_PREFIX) else ""
+
+
+class BlobStore:
+    """Just enough of the Vercel Blob REST API: put and list."""
+
+    def __init__(self, token: str = "", timeout: float = 60) -> None:
+        self.token = (token or os.environ.get(TOKEN_ENV, "")).strip().strip('"')
+        self.timeout = timeout
+        self._session = None
 
     def configured(self) -> bool:
-        return bool(self.url.startswith("https://") and self.key and self.bucket)
+        return bool(store_id_from_token(self.token))
 
-    def public_url(self, path: str) -> str:
-        return f"{self.url}/storage/v1/object/public/{self.bucket}/{path}"
+    @property
+    def store_id(self) -> str:
+        return store_id_from_token(self.token)
+
+    def _headers(self, extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+        return {
+            "authorization": f"Bearer {self.token}",
+            "x-api-version": API_VERSION,
+            "x-vercel-blob-store-id": self.store_id,
+            **(extra or {}),
+        }
+
+    def _request(self, method: str, query: Dict[str, str], **kwargs):
+        if not self.configured():
+            raise ImageHostError(
+                "Vercel Blob is not set up. Paste your store's read-write token "
+                "(vercel_blob_rw_…) under Settings → Image Hosting.")
+        import requests
+
+        if self._session is None:
+            self._session = requests.Session()
+        try:
+            response = self._session.request(
+                method, f"{API_URL}/", params=query, timeout=self.timeout, **kwargs)
+        except requests.RequestException as exc:
+            raise ImageHostError(f"Could not reach Vercel Blob: {exc}") from exc
+        if response.status_code >= 300:
+            raise ImageHostError(explain(response.status_code, response.text))
+        return response
+
+    def put(self, pathname: str, data: bytes, content_type: str,
+            *, cache_seconds: int = 31536000) -> str:
+        """Store ``data`` at exactly ``pathname`` (overwriting); returns its URL."""
+        response = self._request(
+            "PUT", {"pathname": pathname}, data=data,
+            headers=self._headers({
+                "x-vercel-blob-access": "public",
+                "x-content-type": content_type,
+                "x-add-random-suffix": "0",
+                "x-allow-overwrite": "1",
+                "x-cache-control-max-age": str(cache_seconds),
+            }))
+        url = (response.json() or {}).get("url", "")
+        if not url:
+            raise ImageHostError("Vercel Blob accepted the upload but returned no address.")
+        return url
+
+    def list_pathnames(self, prefix: str) -> Iterator[str]:
+        """Every stored pathname that starts with ``prefix``."""
+        cursor = ""
+        while True:
+            query = {"prefix": prefix, "limit": "1000"}
+            if cursor:
+                query["cursor"] = cursor
+            page = self._request("GET", query, headers=self._headers()).json() or {}
+            for blob in page.get("blobs", []):
+                yield blob.get("pathname", "")
+            cursor = page.get("cursor") or ""
+            if not page.get("hasMore") or not cursor:
+                return
+
+
+class ImageHost:
+    def __init__(self, token: str = "", folder: str = "") -> None:
+        self.store = BlobStore(token)
+        self.folder = (folder or os.environ.get(FOLDER_ENV, "")
+                       or DEFAULT_FOLDER).strip().strip("/")
+
+    def configured(self) -> bool:
+        return self.store.configured()
+
+    @property
+    def identity(self) -> str:
+        """Which store uploads land in; a cached URL from another store is stale."""
+        return f"vercel-blob:{self.store.store_id}" if self.configured() else ""
 
     def upload_file(self, path: str | Path, name: Optional[str] = None) -> str:
         source = Path(path).expanduser()
@@ -65,31 +154,15 @@ class ImageHost:
         """Upload ``data``; returns its public URL."""
         if not self.configured():
             raise ImageHostError(
-                "Image hosting is not set up. Add your Supabase project URL and "
-                "service key under Settings → Image Hosting.")
+                "Image hosting is not set up. Paste your Vercel Blob read-write "
+                "token (vercel_blob_rw_…) under Settings → Image Hosting.")
         if len(data) > MAX_BYTES:
             raise ImageHostError("That image is over 5 MB; shrink it before using it in email.")
         content_type = content_type or mimetypes.guess_type(name)[0] or "image/png"
         path = object_path(name, data)
-        import requests
-
-        headers = {
-            "apikey": self.key,
-            "Content-Type": content_type,
-            "Cache-Control": "max-age=31536000",
-            "x-upsert": "true",
-        }
-        # Legacy service_role keys are JWTs and go in Authorization too. The
-        # newer sb_secret_ keys are not JWTs and must only go in apikey.
-        if not self.key.startswith("sb_"):
-            headers["Authorization"] = f"Bearer {self.key}"
-        response = requests.post(
-            f"{self.url}/storage/v1/object/{self.bucket}/{path}",
-            data=data, headers=headers, timeout=60,
-        )
-        if response.status_code >= 300:
-            raise ImageHostError(explain(response.status_code, response.text, self.bucket))
-        return self.public_url(path)
+        if self.folder:
+            path = f"{self.folder}/{path}"
+        return self.store.put(path, data, content_type)
 
 
 def object_path(name: str, data: bytes) -> str:
@@ -100,14 +173,20 @@ def object_path(name: str, data: bytes) -> str:
     return f"{datetime.now():%Y/%m}/{slug}-{digest}.{(ext or 'png').lower()}"
 
 
-def explain(status: int, body: str, bucket: str) -> str:
-    """Turn a Supabase error into the step that fixes it."""
+def explain(status: int, body: str) -> str:
+    """Turn a Vercel Blob error into the step that fixes it."""
     lowered = (body or "").lower()
-    if status in (401, 403) or "jwt" in lowered or "signature" in lowered:
-        return ("Supabase refused the key. Use a secret key (sb_secret_…) or the "
-                "legacy service_role key from Project Settings → API Keys, not "
-                "the publishable or anon key.")
-    if status == 404 or "bucket not found" in lowered:
-        return (f"There is no bucket called {bucket!r}. In Supabase, open Storage → "
-                f"New bucket, name it {bucket}, and turn on Public bucket.")
-    return f"Upload failed ({status}): {body[:200]}"
+    if status in (401, 403) and "private" in lowered:
+        return ("Your Vercel Blob store is private, so emails couldn't show its "
+                "images. Create a store with Public access in Vercel → Storage "
+                "and use its read-write token.")
+    if status in (401, 403) or ("token" in lowered and "invalid" in lowered):
+        return ("Vercel Blob refused the token. Copy the read-write token "
+                "(vercel_blob_rw_…) from Vercel → Storage → your Blob store → "
+                ".env.local tab, and paste it under Settings → Image Hosting.")
+    if status == 404 or "store_not_found" in lowered or "not found" in lowered:
+        return ("Vercel can't find that Blob store. It may have been deleted; "
+                "check Vercel → Storage and copy a current read-write token.")
+    if status == 429:
+        return "Vercel Blob is rate-limiting uploads; wait a minute and try again."
+    return f"Upload failed ({status}): {(body or '')[:200]}"

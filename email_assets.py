@@ -6,7 +6,7 @@ A template names its banner image in a comment, e.g.
 https address, so :func:`url_for` turns that name into one:
 
 * With image hosting set up (Settings → Image Hosting), the file is uploaded to
-  your own Supabase bucket once and that address is remembered.
+  your own Vercel Blob store once and that address is remembered.
 * Otherwise the copy published with the app's public GitHub repository is used.
 
 Either way nothing has to be pasted in by hand.
@@ -84,7 +84,9 @@ def hosted_resolver(host, cache_path: Optional[Path] = None,
         sha = hashlib.sha256(data).hexdigest()
         cache = _load(cache_file)
         hit = cache.get(name)
-        if hit and hit.get("sha") == sha and hit.get("url"):
+        identity = getattr(host, "identity", "")
+        if (hit and hit.get("sha") == sha and hit.get("url")
+                and hit.get("host", "") == identity):
             return hit["url"]
         try:
             url = host.upload_bytes(data, Path(name).name)
@@ -92,7 +94,7 @@ def hosted_resolver(host, cache_path: Optional[Path] = None,
             on_error(f"Couldn't upload {name} to your image host ({exc}); "
                      "using the public copy.")
             return public_url(name)
-        cache[name] = {"sha": sha, "url": url}
+        cache[name] = {"sha": sha, "url": url, "host": identity}
         try:
             cache_file.parent.mkdir(parents=True, exist_ok=True)
             cache_file.write_text(json.dumps(cache, indent=2), encoding="utf-8")

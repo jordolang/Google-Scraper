@@ -118,7 +118,23 @@ class SettingsPage(Page):
         self.sender_address.setPlaceholderText("123 Main St, Columbus, OH 43215")
         self.unsubscribe_url = QLineEdit()
         self.unsubscribe_url.setPlaceholderText(
-            "Only used without Supabase; blank = reply \"Unsubscribe\"")
+            "Only used without an unsubscribe site; blank = reply \"Unsubscribe\"")
+        self.unsubscribe_site = QLineEdit()
+        self.unsubscribe_site.setPlaceholderText("https://your-unsubscribe.vercel.app")
+        self.unsubscribe_site.setToolTip(
+            "The vercel/ folder of this project, deployed to Vercel. Each email "
+            "links there with its own one-click unsubscribe link.")
+        self.unsubscribe_secret = QLineEdit()
+        self.unsubscribe_secret.setEchoMode(QLineEdit.Password)
+        self.unsubscribe_secret.setPlaceholderText("Generate one, then paste it into Vercel too")
+        self.unsubscribe_secret.setToolTip(
+            "Signs every unsubscribe link so nobody can forge one. Must match "
+            "UNSUBSCRIBE_SECRET in your Vercel project's environment variables.")
+        self.generate_secret_button = button("Generate && Copy")
+        self.generate_secret_button.setToolTip(
+            "Makes a new signing secret, fills it in and copies it so you can "
+            "paste it into Vercel.")
+        self.generate_secret_button.clicked.connect(self._generate_secret)
 
         grid = QGridLayout()
         grid.setHorizontalSpacing(12)
@@ -127,15 +143,24 @@ class SettingsPage(Page):
         grid.addWidget(Field("Resend API Key", self.resend_key), 0, 1)
         grid.addWidget(Field("Your Name (signature and From)", self.sender_name), 1, 0)
         grid.addWidget(Field("Postal Address (email footer)", self.sender_address), 1, 1)
-        grid.addWidget(Field("Unsubscribe Page", self.unsubscribe_url), 2, 0, 1, 2)
+        grid.addWidget(Field("Unsubscribe Site (Vercel)", self.unsubscribe_site), 2, 0)
+        secret_row = QHBoxLayout()
+        secret_row.addWidget(Field("Unsubscribe Secret", self.unsubscribe_secret), 1)
+        secret_column = QVBoxLayout()
+        secret_column.addSpacing(15)
+        secret_column.addWidget(self.generate_secret_button)
+        secret_row.addLayout(secret_column)
+        grid.addLayout(secret_row, 2, 1)
+        grid.addWidget(Field("Fallback Unsubscribe Page", self.unsubscribe_url), 3, 0, 1, 2)
         card.add_layout(grid)
         card.add(hint(
             "Every email goes out with a plain-text copy, an unsubscribe header and "
-            "a randomised gap between sends. With Supabase set up (Image Hosting), "
-            "each email gets its own one-click unsubscribe link and anyone who "
-            "unsubscribes is skipped automatically. A postal address in the footer is "
-            "required for commercial email in the US. API keys are kept in the "
-            "app's own .env file, not in settings.json."))
+            "a randomised gap between sends. With the unsubscribe site, its secret "
+            "and a Vercel Blob token (Image Hosting) set, each email gets its own "
+            "one-click unsubscribe link and anyone who unsubscribes is skipped "
+            "automatically (setup: docs/unsubscribe.md). A postal address in the "
+            "footer is required for commercial email in the US. API keys are kept "
+            "in the app's own .env file, not in settings.json."))
         self.domain_button = button("Check My Domain")
         self.domain_button.setToolTip("Looks up SPF, DKIM and DMARC for your From address.")
         self.domain_button.clicked.connect(self.check_domain)
@@ -149,22 +174,22 @@ class SettingsPage(Page):
 
     def _build_images(self) -> Card:
         card = Card("Image Hosting")
-        self.supabase_url = QLineEdit()
-        self.supabase_url.setPlaceholderText("https://<project>.supabase.co")
-        self.supabase_bucket = QLineEdit()
-        self.supabase_key = QLineEdit()
-        self.supabase_key.setEchoMode(QLineEdit.Password)
-        self.supabase_key.setPlaceholderText("sb_secret_…  (or the legacy service_role key)")
+        self.blob_token = QLineEdit()
+        self.blob_token.setEchoMode(QLineEdit.Password)
+        self.blob_token.setPlaceholderText("vercel_blob_rw_…")
+        self.blob_folder = QLineEdit()
+        self.blob_folder.setPlaceholderText("email-images")
         grid = QGridLayout()
         grid.setHorizontalSpacing(12)
         grid.setVerticalSpacing(10)
-        grid.addWidget(Field("Supabase Project URL", self.supabase_url), 0, 0)
-        grid.addWidget(Field("Public Bucket", self.supabase_bucket), 0, 1)
-        grid.addWidget(Field("Service Key", self.supabase_key), 1, 0, 1, 2)
+        grid.addWidget(Field("Vercel Blob Read-Write Token", self.blob_token), 0, 0)
+        grid.addWidget(Field("Folder", self.blob_folder), 0, 1)
         card.add_layout(grid)
         card.add(hint(
-            "Images in an email have to live at a public web address. Images you "
-            "add on the Outreach page are uploaded here and linked into each email."))
+            "Images in an email have to live at a public web address. Website "
+            "previews and images you add on the Outreach page are uploaded to your "
+            "Vercel Blob store (Vercel → Storage → a store with Public access) and "
+            "linked into each email. The same store keeps the unsubscribe list."))
         return card
 
     def _build_previews(self) -> Card:
@@ -259,14 +284,38 @@ class SettingsPage(Page):
         self.sender_name.setText(str(s.get("sender_name", "")))
         self.sender_address.setText(str(s.get("sender_address", "")))
         self.unsubscribe_url.setText(str(s.get("unsubscribe_url", "")))
-        self.supabase_url.setText(str(s.get("supabase_url", "")))
-        self.supabase_bucket.setText(str(s.get("supabase_bucket", "") or "email-images"))
-        self.supabase_key.setText(os.environ.get("SUPABASE_SERVICE_KEY", ""))
+        self.unsubscribe_site.setText(str(s.get("unsubscribe_site", "")))
+        self.unsubscribe_secret.setText(os.environ.get("UNSUBSCRIBE_SECRET", ""))
+        self.blob_folder.setText(str(s.get("blob_folder", "") or "email-images"))
+        self.blob_token.setText(os.environ.get("BLOB_READ_WRITE_TOKEN", ""))
         self.hf_key_id.setText(os.environ.get("HF_API_KEY_ID", ""))
         self.hf_key_secret.setText(os.environ.get("HF_API_KEY_SECRET", ""))
         model = self.preview_model.findData(s.get("preview_model", ""))
         if model >= 0:
             self.preview_model.setCurrentIndex(model)
+
+    def _generate_secret(self) -> None:
+        """A new unsubscribe signing secret, filled in and on the clipboard."""
+        from PySide6.QtWidgets import QApplication
+
+        from opt_outs import new_secret
+
+        if self.unsubscribe_secret.text().strip():
+            answer = QMessageBox.question(
+                self, "Replace the secret?",
+                "Links in emails you've already sent stop working once the "
+                "secret changes. Make a new one anyway?")
+            if answer != QMessageBox.Yes:
+                return
+        secret = new_secret()
+        self.unsubscribe_secret.setText(secret)
+        QApplication.clipboard().setText(secret)
+        QMessageBox.information(
+            self, "Secret copied",
+            "A new secret is filled in and copied to your clipboard.\n\n"
+            "In Vercel, open your unsubscribe project → Settings → Environment "
+            "Variables, add UNSUBSCRIBE_SECRET with this value, and redeploy. "
+            "Then press Save here.")
 
     def save(self) -> None:
         self.state.password = self.password.text()
@@ -285,14 +334,15 @@ class SettingsPage(Page):
             sender_name=self.sender_name.text().strip(),
             sender_address=self.sender_address.text().strip(),
             unsubscribe_url=self.unsubscribe_url.text().strip(),
-            supabase_url=self.supabase_url.text().strip().rstrip("/"),
-            supabase_bucket=self.supabase_bucket.text().strip() or "email-images",
+            unsubscribe_site=self.unsubscribe_site.text().strip().rstrip("/"),
+            blob_folder=self.blob_folder.text().strip().strip("/") or "email-images",
             preview_model=self.preview_model.currentData() or "",
         )
         try:
             runtime.save_env_values({
                 "RESEND_API_KEY": self.resend_key.text().strip(),
-                "SUPABASE_SERVICE_KEY": self.supabase_key.text().strip(),
+                "BLOB_READ_WRITE_TOKEN": self.blob_token.text().strip().strip('"'),
+                "UNSUBSCRIBE_SECRET": self.unsubscribe_secret.text().strip(),
                 "HF_API_KEY_ID": self.hf_key_id.text().strip(),
                 "HF_API_KEY_SECRET": self.hf_key_secret.text().strip(),
             })

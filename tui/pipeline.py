@@ -72,16 +72,17 @@ class Pipeline:
         unsubscribe_url: str = "",
         send_via: str = "smtp",
         preview_model: str = "",
-        image_host_url: str = "",
-        image_host_bucket: str = "",
+        image_folder: str = "",
+        unsubscribe_site: str = "",
     ) -> None:
         self.from_email = from_email
         # Website previews: which Higgsfield model draws them, and the image
-        # host (Supabase Storage) that keeps them online after Higgsfield's
-        # own links expire. Keys come from the environment (the app's .env).
+        # host (Vercel Blob) that keeps them online after Higgsfield's own
+        # links expire. Keys come from the environment (the app's .env).
         self.preview_model = preview_model or ""
-        self.image_host_url = image_host_url or ""
-        self.image_host_bucket = image_host_bucket or ""
+        self.image_folder = image_folder or ""
+        # The deployed vercel/ unsubscribe site; blank = UNSUBSCRIBE_SITE_URL.
+        self.unsubscribe_site = unsubscribe_site or ""
         # Who the email is from, the postal address in its footer, where its
         # Unsubscribe link points, and whether it goes out over SMTP or the
         # Resend API ("smtp" | "resend").
@@ -242,16 +243,17 @@ class Pipeline:
         )
 
     def _opt_outs(self):
-        """The Supabase unsubscribe list, or None when Supabase isn't set up.
+        """The unsubscribe list, or None when it isn't set up.
 
-        It shares image hosting's project (URL from settings, secret key from
-        the app's .env). Once a request shows the table hasn't been created,
-        the run falls back to the shared unsubscribe setting.
+        Links point at the deployed vercel/ site (URL from settings, signing
+        secret from the app's .env); opt-outs are read from the Vercel Blob
+        store image hosting uses. Until all three are filled in, the run falls
+        back to the shared unsubscribe setting.
         """
         if getattr(self, "_opt_out_list", None) is None:
             from opt_outs import OptOutList
 
-            self._opt_out_list = OptOutList(url=self.image_host_url)
+            self._opt_out_list = OptOutList(url=self.unsubscribe_site)
             self._opt_outs_missing = False
         if self._opt_outs_missing or not self._opt_out_list.configured():
             return None
@@ -423,7 +425,7 @@ class Pipeline:
         maker = self._preview_maker()
         if not getattr(maker, "hosts_images", True):
             progress("⚠ No image host is set up, so these preview links expire in "
-                     "7 days. Add Supabase under Settings → Image Hosting to keep them.")
+                     "7 days. Add your Vercel Blob token under Settings → Image Hosting to keep them.")
         from site_preview import PreviewError
 
         made = 0
@@ -458,7 +460,7 @@ class Pipeline:
 
         return PreviewMaker(
             HiggsfieldClient(model=self.preview_model),
-            ImageHost(url=self.image_host_url, bucket=self.image_host_bucket))
+            ImageHost(folder=self.image_folder))
 
     def build_message(
         self,
@@ -785,7 +787,7 @@ class LivePipeline(Pipeline):
             from image_host import ImageHost
 
             self._asset_resolver = email_assets.hosted_resolver(
-                ImageHost(url=self.image_host_url, bucket=self.image_host_bucket))
+                ImageHost(folder=self.image_folder))
         return self._asset_resolver
 
     def build_message(

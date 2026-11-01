@@ -7,7 +7,7 @@ packaged app never has to write inside its own install folder.
 
 Nothing secret is stored here. The SMTP password is read from the environment
 (or a ``.env`` file) and otherwise only ever held in memory for the lifetime of
-the window; see :mod:`gui.state`. API keys (Resend, Supabase) go in the app's
+the window; see :mod:`gui.state`. API keys (Resend, Vercel Blob, Higgsfield) go in the app's
 own ``.env`` via :func:`gui.runtime.save_env_values`.
 """
 
@@ -50,9 +50,12 @@ DEFAULTS: Dict[str, Any] = {
     "unsubscribe_url": "",
     # "smtp" or "resend". The Resend API key lives in the app's .env.
     "send_via": "smtp",
-    # Supabase Storage for email images. The service key lives in the .env.
-    "supabase_url": "",
-    "supabase_bucket": "email-images",
+    # Vercel Blob for email images: the folder they go in. The store's
+    # read-write token (BLOB_READ_WRITE_TOKEN) lives in the .env.
+    "blob_folder": "email-images",
+    # The deployed vercel/ unsubscribe site (https://….vercel.app). Its
+    # signing secret (UNSUBSCRIBE_SECRET) lives in the .env.
+    "unsubscribe_site": "",
     # The image shown in every email that has no preview of its own.
     "email_image": "",
     # Website previews drawn by Higgsfield (site_preview.MODELS key; "" =

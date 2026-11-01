@@ -369,14 +369,13 @@ class EmailCampaigns(QWidget):
             return
         services.runtime.load_env()
         settings = self.state.settings
-        host = ImageHost(url=settings.get("supabase_url", ""),
-                         bucket=settings.get("supabase_bucket", ""))
+        host = ImageHost(folder=settings.get("blob_folder", ""))
         if not host.configured():
             QMessageBox.information(
                 self, "Set up image hosting first",
                 "Emails can only show images that live at a public web address.\n\n"
-                "Add your Supabase project URL, bucket and service key under "
-                "Settings → Image Hosting, then upload again.")
+                "Paste your Vercel Blob read-write token (vercel_blob_rw_…) "
+                "under Settings → Image Hosting, then upload again.")
             return
         self.upload_image_button.setEnabled(False)
         self.upload_image_button.setText("Uploading…")
