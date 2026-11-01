@@ -11,6 +11,11 @@ The bump is driven by the commit subject: `feat:` is a feature, everything else
 (`fix:`, `docs:`, `chore:`, `refactor:`…) is a fix-level change. See
 [Versioning](README.md#️-versioning) for the full rules.
 
+## [1.14] - 2026-11-01
+
+### Added
+- move image hosting and unsubscribes from Supabase to Vercel
+
 ## [1.13] - 2026-11-01
 
 ### Added
