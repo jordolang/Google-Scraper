@@ -43,7 +43,9 @@ class SilentMessageBox:
     Yes = QMessageBox.Yes
     No = QMessageBox.No
     Ok = QMessageBox.Ok
+    Cancel = QMessageBox.Cancel
     calls: list = []
+    answer = QMessageBox.Yes
 
     @classmethod
     def _record(cls, kind, args):
@@ -67,7 +69,7 @@ class SilentMessageBox:
     @classmethod
     def question(cls, *args, **kwargs):
         cls._record("question", args)
-        return cls.Yes
+        return cls.answer
 
 
 @pytest.fixture(autouse=True)
@@ -79,6 +81,7 @@ def no_modal_dialogs(monkeypatch):
     import gui.pages
 
     SilentMessageBox.calls = []
+    SilentMessageBox.answer = QMessageBox.Yes
     modules = [gui.pages]
     for info in pkgutil.iter_modules(gui.pages.__path__):
         modules.append(importlib.import_module(f"gui.pages.{info.name}"))
@@ -397,7 +400,7 @@ def test_recipients_are_the_leads_with_an_email(window):
     assert all(lead.business.has_email for lead in campaigns._recipients)
 
 
-def test_dry_run_composes_without_sending(window):
+def test_dry_run_composes_without_sending(window, no_modal_dialogs):
     run_search(window, "Roofing Contractors")
     window.pages["dashboard"]._set_all(True)
     window.go_to("scraper")
@@ -408,12 +411,54 @@ def test_dry_run_composes_without_sending(window):
     campaigns = window.pages["outreach"].campaigns
     campaigns.send_method.setCurrentIndex(1)  # dry run
     campaigns.delay.setValue(0)
+    no_modal_dialogs.answer = QMessageBox.No  # "run the dry run anyway"
     campaigns.send()
     drain(campaigns.runner)
 
     assert window.state.campaign_stats["sent"] == 0
     assert not any(lead.business.emailed for lead in window.state.leads)
     assert any("DRY RUN" in line for line in window.state.log_lines)
+    # The result says plainly that nothing went out, instead of "sent 0".
+    assert any("nothing was sent" in " ".join(texts).lower()
+               for kind, texts in no_modal_dialogs.calls if kind == "information")
+    counts = campaigns.monitor.counts
+    assert counts["dry_run"] > 0 and counts["sent"] == 0
+
+
+def test_send_with_dry_run_selected_offers_to_send_for_real(window, no_modal_dialogs):
+    run_search(window, "Roofing Contractors")
+    window.pages["dashboard"]._set_all(True)
+    window.go_to("scraper")
+    window.pages["scraper"].start()
+    drain(window.pages["scraper"].runner)
+
+    window.go_to("outreach")
+    campaigns = window.pages["outreach"].campaigns
+    campaigns.send_method.setCurrentIndex(1)  # the saved default
+    campaigns.auto_previews.setChecked(False)
+    campaigns.delay.setValue(0)
+    campaigns.send()  # answered "Yes — send for real"
+    drain(campaigns.runner)
+
+    assert campaigns.send_method.currentIndex() == 0
+    assert window.state.settings["dry_run"] is False
+    sent = window.state.campaign_stats["sent"]
+    assert sent > 0
+    assert campaigns.monitor.counts["sent"] == sent
+    assert campaigns.monitor.table.rowCount() >= sent
+
+
+def test_send_cancelled_at_the_dry_run_prompt_sends_nothing(window, no_modal_dialogs):
+    run_search(window, "Roofing Contractors")
+    window.pages["dashboard"]._set_all(True)
+    window.go_to("outreach")
+    campaigns = window.pages["outreach"].campaigns
+    campaigns.send_method.setCurrentIndex(1)
+    no_modal_dialogs.answer = QMessageBox.Cancel
+    campaigns.send()
+
+    assert not campaigns.runner.running
+    assert window.state.campaign_stats["sent"] == 0
 
 
 def test_test_email_goes_to_you_without_touching_the_campaign(window):

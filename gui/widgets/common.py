@@ -247,18 +247,30 @@ class DataTable(QTableWidget):
             self._suppress = False
 
     def tint_row(self, row: int, colour: str) -> None:
-        for col in range(self.columnCount()):
-            item = self.item(row, col)
-            if item is not None:
-                item.setBackground(QColor(colour))
+        # Restyling an item fires itemChanged. Left unsuppressed, tinting the
+        # checkbox cell reads as a selection toggle, which refreshes the page,
+        # which tints the row again — endless recursion once any lead is
+        # marked as emailed.
+        was, self._suppress = self._suppress, True
+        try:
+            for col in range(self.columnCount()):
+                item = self.item(row, col)
+                if item is not None:
+                    item.setBackground(QColor(colour))
+        finally:
+            self._suppress = was
 
     def bold_cell(self, row: int, column: int) -> None:
         offset = 1 if self._checkable else 0
         item = self.item(row, column + offset)
         if item is not None:
-            font = item.font()
-            font.setBold(True)
-            item.setFont(font)
+            was, self._suppress = self._suppress, True
+            try:
+                font = item.font()
+                font.setBold(True)
+                item.setFont(font)
+            finally:
+                self._suppress = was
 
     def _on_item_changed(self, item: QTableWidgetItem) -> None:
         if not self._suppress and self._checkable and item.column() == 0:

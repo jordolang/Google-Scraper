@@ -262,6 +262,17 @@ QTabBar::tab:selected {{
 }}
 QTabBar::tab:hover:!selected {{ background: #F8FAFC; }}
 
+/* ---- lists ------------------------------------------------------------ */
+QListWidget, QListView, QTreeWidget, QTreeView {{
+    background: {CARD};
+    color: {INK};
+    border: 1px solid {BORDER};
+    border-radius: 6px;
+    selection-background-color: {BLUE_SOFT};
+    selection-color: {INK};
+}}
+QListWidget::item, QListView::item {{ color: {INK}; }}
+
 /* ---- tables ----------------------------------------------------------- */
 QTableWidget, QTableView {{
     background: {CARD};
@@ -354,3 +365,30 @@ QToolTip {{
 }}
 QSplitter::handle {{ background: transparent; }}
 """
+
+
+def light_palette():
+    """A fixed light QPalette.
+
+    The app is designed light-only. Without this, macOS Dark Mode hands any
+    widget the stylesheet doesn't fully cover (a list's viewport, a text
+    browser's base) a black background with near-black text.
+    """
+    from PySide6.QtGui import QColor, QPalette
+
+    palette = QPalette()
+    roles = {
+        QPalette.Window: CANVAS, QPalette.WindowText: INK,
+        QPalette.Base: CARD, QPalette.AlternateBase: "#FAFBFD",
+        QPalette.Text: INK, QPalette.Button: CARD, QPalette.ButtonText: INK,
+        QPalette.ToolTipBase: CARD, QPalette.ToolTipText: INK,
+        QPalette.PlaceholderText: MUTED, QPalette.Highlight: BLUE_SOFT,
+        QPalette.HighlightedText: INK, QPalette.BrightText: RED,
+        QPalette.Link: BLUE,
+    }
+    for role, colour in roles.items():
+        palette.setColor(role, QColor(colour))
+    palette.setColor(QPalette.Disabled, QPalette.Text, QColor(MUTED))
+    palette.setColor(QPalette.Disabled, QPalette.ButtonText, QColor(MUTED))
+    palette.setColor(QPalette.Disabled, QPalette.WindowText, QColor(MUTED))
+    return palette

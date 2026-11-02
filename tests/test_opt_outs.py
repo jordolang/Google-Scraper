@@ -207,3 +207,42 @@ def test_test_send_needs_an_address(pipeline):
         stats = pipeline.send_test(msg, "", password="pw")
     assert stats["sent"] == 0 and "address" in stats["error"]
     fake_sender.connect.assert_not_called()
+
+
+def test_send_reports_each_recipient_and_why_one_failed(pipeline):
+    messages = [
+        EmailMessage(business=Business(name=name), to_email=email, subject="s", html="h")
+        for name, email in [("Good", "good@x.com"), ("Bad", "bad@x.com"),
+                            ("None", "")]
+    ]
+    fake_sender = mock.Mock(smtp_server="s", smtp_port=1)
+    fake_sender.connect.return_value = True
+    fake_sender.failed_emails = []
+
+    def send_email(to, *args, **kwargs):
+        if to == "bad@x.com":
+            fake_sender.failed_emails.append(("Bad", to, "550 mailbox unavailable"))
+            return False
+        return True
+
+    fake_sender.send_email.side_effect = send_email
+    events = []
+    with mock.patch.object(LivePipeline, "_sender", return_value=fake_sender), \
+            mock.patch("tui.pipeline.time.sleep"):
+        stats = pipeline.send(messages, password="pw", on_event=events.append)
+    assert (stats["sent"], stats["failed"], stats["skipped"]) == (1, 1, 1)
+    assert stats["failures"] == [
+        {"business": "Bad", "to": "bad@x.com", "reason": "550 mailbox unavailable"}]
+    final = {e["index"]: e["status"] for e in events if e["index"] is not None}
+    assert final == {1: "sent", 2: "failed", 3: "skipped"}
+    assert any(e["status"] == "connected" for e in events)
+
+
+def test_dry_run_counts_what_it_composed(pipeline):
+    msg = EmailMessage(business=Business(name="A"), to_email="a@x.com", subject="s", html="h")
+    fake_sender = mock.Mock()
+    with mock.patch.object(LivePipeline, "_sender", return_value=fake_sender), \
+            mock.patch.object(LivePipeline, "record_outreach"):
+        stats = pipeline.send([msg], password="", dry_run=True)
+    assert stats["dry_run"] and stats["composed"] == 1 and stats["sent"] == 0
+    fake_sender.connect.assert_not_called()

@@ -11,7 +11,7 @@ from typing import Dict, List, Optional
 from PySide6.QtCore import Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
-    QComboBox, QDoubleSpinBox, QHBoxLayout, QInputDialog, QLineEdit, QListWidget,
+    QComboBox, QGridLayout, QDoubleSpinBox, QHBoxLayout, QInputDialog, QLineEdit, QListWidget,
     QListWidgetItem, QMessageBox, QPlainTextEdit, QSpinBox, QSplitter,
     QTabWidget, QTextBrowser, QVBoxLayout, QWidget,
 )
@@ -24,6 +24,7 @@ from ..widgets.common import (
     Card, DataTable, Field, KeyValueRow, LogView, Stat, button, checkbox, hint, h_line,
     progress_bar, section_heading, title,
 )
+from ..widgets.send_monitor import SendMonitor
 from ..workers import JobRunner
 from . import Page
 
@@ -125,9 +126,15 @@ class EmailCampaigns(QWidget):
         body.addWidget(self._build_setup(), 3)
         body.addWidget(self._build_recipients(), 5)
         layout.addLayout(body, 1)
-        layout.addWidget(self._build_stats())
+        bottom = QHBoxLayout()
+        bottom.setSpacing(12)
+        bottom.addWidget(self._build_stats(), 2)
+        self.monitor = SendMonitor()
+        bottom.addWidget(self.monitor, 5)
+        layout.addLayout(bottom)
 
         self.runner.message.connect(self._on_message)
+        self.runner.event.connect(self.monitor.handle)
         self.runner.finished.connect(self._on_finished)
         self.runner.failed.connect(self._on_failed)
         self.runner.cancelled.connect(self._on_cancelled)
@@ -294,21 +301,23 @@ class EmailCampaigns(QWidget):
     def _build_stats(self) -> Card:
         card = Card("Campaign Stats")
         self.stat_widgets: Dict[str, Stat] = {}
-        line = QHBoxLayout()
-        line.setSpacing(28)
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(28)
+        grid.setVerticalSpacing(14)
         tracked = {"sent", "delivered", "bounced"}
-        for key, label in (("sent", "✉ Sent"), ("delivered", "✓ Delivered"),
-                           ("opened", "👁 Opened"), ("clicked", "↗ Clicked"),
-                           ("replied", "↩ Replied"), ("bounced", "⚠ Bounced")):
+        for position, (key, label) in enumerate((
+                ("sent", "✉ Sent"), ("delivered", "✓ Delivered"),
+                ("bounced", "⚠ Failed"), ("opened", "👁 Opened"),
+                ("clicked", "↗ Clicked"), ("replied", "↩ Replied"))):
             stat = Stat(label, "0" if key in tracked else "—")
             if key not in tracked:
                 stat.setToolTip(
                     "Opens, clicks and replies need a tracking provider "
                     "(SendGrid, Mailgun, …). Direct SMTP cannot report them.")
-            line.addWidget(stat)
+            grid.addWidget(stat, position // 3, position % 3)
             self.stat_widgets[key] = stat
-        line.addStretch(1)
-        card.add_layout(line)
+        card.add_layout(grid)
+        card.body().addStretch(1)
         return card
 
     # -- data --------------------------------------------------------------
@@ -615,8 +624,26 @@ class EmailCampaigns(QWidget):
         chosen = self.chosen()
         if not chosen:
             return
-        self._save_settings()
         dry_run = self.send_method.currentIndex() == 1
+        if dry_run:
+            # A dry run composes every email and sends none. It is the saved
+            # default, so it is easy to press Send Emails, get "sent 0,
+            # failed 0, skipped 0" and think sending is broken. Ask.
+            answer = QMessageBox.question(
+                self, "Send Method is “Dry run”",
+                "Send Method is set to Dry run — emails are composed but "
+                "NOTHING is actually sent.\n\n"
+                "Yes — switch to “Send for real” and send them now\n"
+                "No — run the dry run anyway (nothing is sent)\n"
+                "Cancel — go back",
+                QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
+                QMessageBox.Yes)
+            if answer == QMessageBox.Yes:
+                self.send_method.setCurrentIndex(0)
+                dry_run = False
+            elif answer != QMessageBox.No:
+                return
+        self._save_settings()
 
         limit = int(self.daily_limit.value())
         if len(chosen) > limit:
@@ -629,8 +656,9 @@ class EmailCampaigns(QWidget):
             chosen = chosen[:limit]
 
         password = ""
+        demo = bool(self.state.settings.get("demo_mode"))
         if not dry_run:
-            password = self._send_password()
+            password = "" if demo else self._send_password()
             if password is None:
                 return
             confirm = QMessageBox.question(
@@ -662,17 +690,28 @@ class EmailCampaigns(QWidget):
             f"Campaign “{self.campaign_name.text().strip()}”: "
             f"{len(chosen)} recipient(s), {'dry run' if dry_run else 'live send'}")
 
+        self.monitor.begin(len(chosen), dry_run=dry_run)
+        if need_previews:
+            self.monitor.note(
+                "preview", f"Drawing {len(need_previews)} website preview(s) first…")
+
         build = self._build_message
+        total = len(chosen)
 
         def job(progress, on_event):
             if need_previews:
                 pipeline.make_previews(need_previews, progress=progress)
             messages = []
             for index, lead in enumerate(chosen, 1):
-                progress(f"[{index}/{len(chosen)}] composing for {lead.business.name}…")
+                progress(f"[{index}/{total}] composing for {lead.business.name}…")
+                on_event({"kind": "email", "index": index, "total": total,
+                          "status": "composing", "detail": "building the email",
+                          "business": lead.business.name,
+                          "to": lead.business.primary_email})
                 messages.append(build(lead, pipeline))
             return pipeline.send(messages, password=password, delay=delay,
-                                 dry_run=dry_run, progress=progress)
+                                 dry_run=dry_run, progress=progress,
+                                 on_event=on_event)
 
         self.runner.start(job)
 
@@ -709,19 +748,47 @@ class EmailCampaigns(QWidget):
             self._on_test_finished(stats)
             return
         sent = int(stats.get("sent", 0))
+        failed = int(stats.get("failed", 0))
+        skipped = int(stats.get("skipped", 0))
         self.state.campaign_stats["sent"] += sent
         self.state.campaign_stats["delivered"] += sent
-        self.state.campaign_stats["bounced"] += int(stats.get("failed", 0))
+        self.state.campaign_stats["bounced"] += failed
         self.refresh()
         self.state.leads_changed.emit()
-        summary = (f"sent {sent}, failed {stats.get('failed', 0)}, "
-                   f"skipped {stats.get('skipped', 0)}")
+        error = str(stats.get("error") or "")
+        self.monitor.finish(error=error)
+
+        if stats.get("dry_run") and not error:
+            composed = int(stats.get("composed", 0))
+            summary = (f"Dry run — composed {composed}, skipped {skipped}. "
+                       "Nothing was sent.")
+            self.state.log("email", f"Campaign finished — {summary}")
+            QMessageBox.information(
+                self, "Dry run finished — nothing was sent",
+                f"{summary}\n\nTo actually email these businesses, set Send "
+                "Method to “Send for real” and press Send Emails again.")
+            return
+
+        summary = f"sent {sent}, failed {failed}, skipped {skipped}"
         self.state.log("email", f"Campaign finished — {summary}")
-        if stats.get("error"):
+        if error:
+            if "unsubscribe" in error:
+                advice = ("Check the unsubscribe site and Vercel Blob token "
+                          "under Settings, then try again. Nobody was emailed.")
+            else:
+                advice = ("Check the account and app-specific password (or "
+                          "Resend key) on the Settings page. Nobody was emailed.")
+            QMessageBox.warning(self, "Campaign not sent", f"{error}\n\n{advice}")
+            return
+        failures = stats.get("failures") or []
+        if failures:
+            lines = [f"• {f.get('business')} <{f.get('to')}>: {f.get('reason')}"
+                     for f in failures[:8]]
+            if len(failures) > 8:
+                lines.append(f"…and {len(failures) - 8} more (see the Live Send Log).")
             QMessageBox.warning(
-                self, "SMTP problem",
-                f"{stats['error']}\n\nCheck the account and app-specific "
-                "password on the Settings page.")
+                self, "Campaign finished with failures",
+                f"{summary}\n\nRefused by the server:\n" + "\n".join(lines))
         else:
             QMessageBox.information(self, "Campaign finished", summary)
 
@@ -731,6 +798,8 @@ class EmailCampaigns(QWidget):
         self.refresh()
         self.state.leads_changed.emit()
         if stats.get("sent"):
+            self.monitor.note("sent", f"Test email sent to {stats.get('to')} "
+                              f"(composed for {stats.get('business')})")
             self.state.log("email", f"Test email sent to {stats.get('to')}")
             QMessageBox.information(
                 self, "Test email sent",
@@ -740,6 +809,7 @@ class EmailCampaigns(QWidget):
                 "Send Emails to send the campaign. No business was emailed.")
             return
         problem = stats.get("error") or "the server did not accept the message"
+        self.monitor.note("failed", f"Test email to {stats.get('to')} failed: {problem}")
         self.state.log("email", f"Test email failed: {problem}")
         QMessageBox.warning(
             self, "Test email not sent",
@@ -753,6 +823,7 @@ class EmailCampaigns(QWidget):
         are already marked — this just repaints the grids that show them.
         """
         delivered = sum(1 for lead in self.state.leads if lead.business.emailed)
+        self.monitor.finish(cancelled=True)
         self.state.log(
             "email", f"Send stopped — {delivered} business(es) logged as contacted.")
         self.refresh()
@@ -760,6 +831,7 @@ class EmailCampaigns(QWidget):
 
     def _on_failed(self, message: str) -> None:
         self.state.log("email", f"ERROR {message}")
+        self.monitor.finish(error=message)
         QMessageBox.critical(
             self, "Send failed", f"{message}\n\n{services.explain_failure(message)}")
 
@@ -824,8 +896,9 @@ class CallScripts(QWidget):
         card = Card("Call Progress")
         self.steps_list = QListWidget()
         self.steps_list.setStyleSheet(
-            f"QListWidget {{ border: 1px solid {theme.BORDER}; border-radius: 6px; }}"
-            f"QListWidget::item {{ padding: 5px 8px; }}"
+            f"QListWidget {{ border: 1px solid {theme.BORDER}; border-radius: 6px;"
+            f" background: {theme.CARD}; color: {theme.INK}; }}"
+            f"QListWidget::item {{ padding: 5px 8px; color: {theme.INK}; }}"
             f"QListWidget::item:selected {{ background: {theme.BLUE_SOFT}; color: {theme.INK}; }}"
         )
         self.steps_list.currentRowChanged.connect(self.go_step)
