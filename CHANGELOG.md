@@ -11,6 +11,11 @@ The bump is driven by the commit subject: `feat:` is a feature, everything else
 (`fix:`, `docs:`, `chore:`, `refactor:`…) is a fix-level change. See
 [Versioning](README.md#️-versioning) for the full rules.
 
+## [1.16] - 2026-11-02
+
+### Added
+- live send log, dry-run guard, and dark-mode fix (#25)
+
 ## [1.15] - 2026-11-02
 
 ### Added
