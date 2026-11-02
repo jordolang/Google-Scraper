@@ -73,7 +73,7 @@ def test_generate_email_injects_pricing_and_leaves_no_tokens():
 def test_auto_classification_selects_industry_template():
     g = EmailGenerator(output_dir="generated_emails")
     html, _fn, _email = g.generate_email(_row("Plumbing service"))
-    assert "home-service pros" in html
+    assert "plumbing &amp; drain services" in html
 
 
 def test_no_hero_image_drops_the_image_block():
@@ -155,6 +155,48 @@ def test_legacy_single_template_mode_ignores_industry():
     assert "Bright Spark Electric" in html
 
 
+def test_local_and_seasonal_templates_render_with_custom_pricing(tmp_path):
+    generator = EmailGenerator(output_dir=str(tmp_path))
+    assert len(industries.LOCAL_INDUSTRIES) == 29
+    for industry in industries.LOCAL_INDUSTRIES:
+        html, _, email = generator.generate_email(
+            _row("Local service", "Zanesville Example"),
+            industry_key=industry.key,
+            pricing={"launchpad": "$901", "launchpad_sale": "$801",
+                     "attribution": "$701", "professional": "$2501",
+                     "enterprise": "Custom local quote"},
+        )
+        assert "{{" not in html, industry.key
+        assert "Zanesville Example" in html
+        assert "$801" in html and "$2501" in html
+        assert "Custom local quote" in html
+        assert email == "info@example.com"
+
+
+def test_seasonal_templates_remain_manual_choices():
+    seasonal = [i for i in industries.LOCAL_INDUSTRIES if i.key.startswith("seasonal_")]
+    assert len(seasonal) == 4
+    for industry in seasonal:
+        assert not industry.keywords
+        assert industry.key in dict((key, label) for label, key in industries.choices())
+    assert industries.classify("Lawn care service", "Winter Snow and Mowing") == "lawncare"
+
+
+def test_insurance_templates_auto_render_specialty_copy(tmp_path):
+    generator = EmailGenerator(output_dir=str(tmp_path))
+    for category, phrase in (
+        ("Home insurance agency", "Help homeowners find an agent"),
+        ("Auto insurance agency", "local auto-insurance searches"),
+        ("Renters insurance agency", "renters and rental-property owners"),
+        ("Boat insurance agency", "boat-insurance expertise"),
+        ("Health insurance agency", "health-insurance guidance"),
+    ):
+        html, _, _ = generator.generate_email(_row(category))
+        assert phrase in html
+        assert "{{" not in html
+        assert "Plan my agency website" in html
+
+
 ROOFER = {
     "name": "Summit Peak Roofing", "category": "Roofing contractor",
     "address": "412 High St, Columbus, OH 43215", "email": "office@summit.example",
@@ -201,7 +243,7 @@ def test_showcase_style_uses_each_businesses_own_industry_and_banner():
     assert "https://img.example/heroes/food_beverage.jpg" in html
     # A style the industry doesn't have falls back to its default template.
     html, _fn, _email = g.generate_email(_row(), industry_key="@nonexistent")
-    assert "home-service pros" in html
+    assert "electrical contractors" in html
 
 
 def test_unknown_template_id_falls_back_to_its_industry():

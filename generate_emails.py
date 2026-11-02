@@ -114,7 +114,7 @@ class EmailGenerator:
           flow, or the old ``email_template.html``). That one file is loaded
           eagerly and used for every email, exactly as before.
         * **Per-industry** — leave ``template_path`` as ``None``. Each email is
-          rendered from ``templates_dir/<industry>.html``, chosen by
+          rendered from the HTML filename in ``templates_dir/templates.json``, chosen by
           auto-classification or an explicit ``industry_key``.
 
         Args:
@@ -138,7 +138,6 @@ class EmailGenerator:
         self.sender_address = sender_address or ""
         self.unsubscribe_url = unsubscribe_url or ""
         self.templates_dir = templates_dir
-        self._template_cache = {}
         if asset_url is None:
             import email_assets
             asset_url = email_assets.public_url
@@ -156,22 +155,20 @@ class EmailGenerator:
                 self.template = f.read()
 
     def _load_industry_template(self, template_id):
-        """Load (and cache) a template by id, falling back to its industry's
-        default template and then to the general one."""
-        if template_id in self._template_cache:
-            return self._template_cache[template_id]
+        """Read catalog files fresh, retaining legacy industry/style variants."""
         directory = Path(self.templates_dir)
-        candidates = [
-            directory / f"{template_id}.html",
-            directory / industries.get(industry_of(template_id)).template_filename,
-            directory / industries.GENERAL.template_filename,
-        ]
-        # A bare unknown key resolves to general, never to an odd file name.
-        if VARIANT_SEP not in template_id and industries.get(template_id).key != template_id:
-            candidates = candidates[2:]
-        path = next((c for c in candidates if c.exists()), candidates[-1])
+        registered = industries.get(template_id, directory)
+        base = industries.get(industry_of(template_id), directory)
+        if registered.key == template_id:
+            candidates = [directory / registered.template_filename]
+        elif (VARIANT_SEP in template_id and re.fullmatch(r"[a-z][a-z0-9_]*", template_id)
+              and base.key == industry_of(template_id)):
+            candidates = [directory / f"{template_id}.html", directory / base.template_filename]
+        else:
+            candidates = []
+        candidates.append(directory / industries.get("general", directory).template_filename)
+        path = next((c for c in candidates if c.is_file()), candidates[-1])
         html = path.read_text(encoding='utf-8')
-        self._template_cache[template_id] = html
         return html
 
     def resolve_template(self, business_data, industry_key=None):
@@ -189,7 +186,8 @@ class EmailGenerator:
     def industry_for(self, business_data):
         """Classify a business row into an industry key."""
         return industries.classify(
-            business_data.get('category', ''), business_data.get('name', '')
+            business_data.get('category', ''), business_data.get('name', ''),
+            templates_dir=self.templates_dir
         )
     
     def clean_text(self, text):
@@ -351,7 +349,10 @@ class EmailGenerator:
             resolved_industry = None
         else:
             template_id = self.resolve_template(business_data, industry_key)
-            resolved_industry = industries.get(industry_of(template_id)).key
+            registered = industries.get(template_id, self.templates_dir)
+            base = industries.get(industry_of(template_id), self.templates_dir)
+            resolved_industry = (base.key if base.key == industry_of(template_id)
+                                 else registered.key)
             email_html = self._load_industry_template(template_id)
 
         # What the scrape found, for copy that adapts to each business.
@@ -412,7 +413,7 @@ class EmailGenerator:
         # Pricing tokens: an explicit override wins, else the industry's stored
         # prices. Harmless no-op on legacy templates that lack the tokens.
         price_row = pricing or pricing_store.prices_for(
-            resolved_industry or industries.GENERAL_KEY
+            resolved_industry or industries.GENERAL_KEY, templates_dir=self.templates_dir
         )
         replacements.update(pricing_store.pricing_tokens(price_row))
 

@@ -150,11 +150,13 @@ class EmailCampaigns(QWidget):
 
         self.template = QComboBox()
         self.template.addItem("Auto — match each business's industry", "")
-        self.template.addItem("Auto — industry hero showcase", "@showcase")
-        for label, key in services.available_templates():
-            self.template.addItem(label, key)
+        self._reload_templates()
         self.edit_template_button = button("Edit Template…")
         self.edit_template_button.clicked.connect(self._edit_template)
+        self.templates_folder_button = button("Open Templates Folder")
+        self.templates_folder_button.clicked.connect(self._open_templates_folder)
+        self.reload_templates_button = button("Reload Templates")
+        self.reload_templates_button.clicked.connect(self._reload_templates)
 
         self.email_image = QLineEdit(str(settings.get("email_image", "")))
         self.email_image.setPlaceholderText("https://… or upload one")
@@ -206,6 +208,10 @@ class EmailCampaigns(QWidget):
         ):
             card.add(Field(label, widget))
         card.add(self.edit_template_button)
+        template_actions = QHBoxLayout()
+        template_actions.addWidget(self.templates_folder_button)
+        template_actions.addWidget(self.reload_templates_button)
+        card.body().addLayout(template_actions)
         image_row = QHBoxLayout()
         image_row.addWidget(Field("Email Image", self.email_image), 1)
         image_column = QVBoxLayout()
@@ -420,6 +426,27 @@ class EmailCampaigns(QWidget):
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
         self.state.log("email", f"Previewed “{message.subject}” for {message.business.name}")
 
+    def _reload_templates(self) -> None:
+        try:
+            available = services.available_templates()
+        except ValueError as exc:
+            QMessageBox.warning(self, "Template catalog needs attention", str(exc))
+            return
+        selected = self.template.currentData()
+        self.template.blockSignals(True)
+        self.template.clear()
+        self.template.addItem("Auto — match each business's industry", "")
+        self.template.addItem("Auto — industry hero showcase", "@showcase")
+        for label, key in available:
+            self.template.addItem(label, key)
+        index = self.template.findData(selected)
+        self.template.setCurrentIndex(max(0, index))
+        self.template.blockSignals(False)
+
+    def _open_templates_folder(self) -> None:
+        directory = services.runtime.user_asset("email_templates")
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(directory.resolve())))
+
     def _edit_template(self) -> None:
         key = self.template.currentData()
         if not key or key.startswith("@"):
@@ -428,7 +455,14 @@ class EmailCampaigns(QWidget):
                 "Choose a specific industry template to edit — “Auto” renders "
                 "whichever template matches each business.")
             return
-        path = Path(services.runtime.user_asset("email_templates")) / f"{key}.html"
+        import industries
+
+        directory = services.runtime.user_asset("email_templates")
+        try:
+            path = directory / industries.get(key, directory).template_filename
+        except ValueError as exc:
+            QMessageBox.warning(self, "Template catalog needs attention", str(exc))
+            return
         if not path.exists():
             QMessageBox.warning(self, "Template missing", f"{path} was not found.")
             return
@@ -648,6 +682,8 @@ class EmailCampaigns(QWidget):
         self.previews_button.setEnabled(not running and bool(self.chosen()))
         self.stop_button.setEnabled(running)
         self.import_button.setEnabled(not running)
+        self.reload_templates_button.setEnabled(not running)
+        self.edit_template_button.setEnabled(not running)
         if not running:
             self.progress.setVisible(False)
             self.state.set_status("Ready")
@@ -1024,4 +1060,3 @@ class OutreachPage(Page):
 
     def on_close(self) -> None:
         self.campaigns.on_close()
-

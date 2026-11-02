@@ -1,0 +1,837 @@
+{
+  "version": 1,
+  "templates": [
+    {
+      "id": "insurance_home",
+      "name": "Home Insurance Providers",
+      "file": "insurance_home.html",
+      "keywords": [
+        "home insurance",
+        "homeowner insurance",
+        "homeowners insurance",
+        "homeowner's insurance",
+        "home owner insurance"
+      ],
+      "accent": "#60a5fa",
+      "priority": 100
+    },
+    {
+      "id": "insurance_auto",
+      "name": "Auto Insurance Providers",
+      "file": "insurance_auto.html",
+      "keywords": [
+        "auto insurance",
+        "car insurance",
+        "vehicle insurance",
+        "automobile insurance"
+      ],
+      "accent": "#38bdf8",
+      "priority": 100
+    },
+    {
+      "id": "insurance_renters",
+      "name": "Renters & Rental Property Insurance",
+      "file": "insurance_renters.html",
+      "keywords": [
+        "renters insurance",
+        "renter insurance",
+        "renter's insurance",
+        "renters' insurance",
+        "rental insurance",
+        "rental property insurance",
+        "tenant insurance",
+        "landlord insurance"
+      ],
+      "accent": "#c084fc",
+      "priority": 100
+    },
+    {
+      "id": "insurance_boat",
+      "name": "Boat & Marine Insurance Providers",
+      "file": "insurance_boat.html",
+      "keywords": [
+        "boat insurance",
+        "marine insurance",
+        "watercraft insurance",
+        "yacht insurance"
+      ],
+      "accent": "#2dd4bf",
+      "priority": 100
+    },
+    {
+      "id": "insurance_health",
+      "name": "Health Insurance Providers",
+      "file": "insurance_health.html",
+      "keywords": [
+        "health insurance",
+        "healthcare insurance",
+        "health care insurance",
+        "medical insurance",
+        "medicare insurance",
+        "health insurance broker"
+      ],
+      "accent": "#86efac",
+      "priority": 100
+    },
+    {
+      "id": "lawncare",
+      "name": "Lawncare & Landscaping",
+      "file": "lawncare.html",
+      "keywords": [
+        "lawn",
+        "landscap",
+        "grass cutting",
+        "mowing"
+      ],
+      "accent": "#84cc16",
+      "priority": 100
+    },
+    {
+      "id": "tree_removal",
+      "name": "Tree Removal & Arborists",
+      "file": "tree_removal.html",
+      "keywords": [
+        "tree service",
+        "tree removal",
+        "arborist",
+        "stump grinding",
+        "tree trimming"
+      ],
+      "accent": "#34d399",
+      "priority": 100
+    },
+    {
+      "id": "roofing",
+      "name": "Roofing Contractors",
+      "file": "roofing.html",
+      "keywords": [
+        "roofing",
+        "roofer",
+        "roof repair"
+      ],
+      "accent": "#fb923c",
+      "priority": 100
+    },
+    {
+      "id": "gutters",
+      "name": "Gutter Installation & Cleaning",
+      "file": "gutters.html",
+      "keywords": [
+        "gutter",
+        "downspout"
+      ],
+      "accent": "#38bdf8",
+      "priority": 100
+    },
+    {
+      "id": "hvac",
+      "name": "HVAC & Heating",
+      "file": "hvac.html",
+      "keywords": [
+        "hvac",
+        "heating",
+        "cooling",
+        "air conditioning",
+        "furnace"
+      ],
+      "accent": "#22d3ee",
+      "priority": 100
+    },
+    {
+      "id": "plumbing",
+      "name": "Plumbing & Drain Services",
+      "file": "plumbing.html",
+      "keywords": [
+        "plumb",
+        "drain cleaning",
+        "water heater"
+      ],
+      "accent": "#60a5fa",
+      "priority": 100
+    },
+    {
+      "id": "electrical",
+      "name": "Electrical Contractors",
+      "file": "electrical.html",
+      "keywords": [
+        "electrician",
+        "electrical",
+        "electric"
+      ],
+      "accent": "#facc15",
+      "priority": 100
+    },
+    {
+      "id": "excavation",
+      "name": "Excavation & Site Work",
+      "file": "excavation.html",
+      "keywords": [
+        "excavat",
+        "site preparation",
+        "land clearing",
+        "grading contractor"
+      ],
+      "accent": "#fbbf24",
+      "priority": 100
+    },
+    {
+      "id": "septic",
+      "name": "Septic Services",
+      "file": "septic.html",
+      "keywords": [
+        "septic",
+        "sewage disposal"
+      ],
+      "accent": "#2dd4bf",
+      "priority": 100
+    },
+    {
+      "id": "concrete_masonry",
+      "name": "Concrete & Masonry",
+      "file": "concrete_masonry.html",
+      "keywords": [
+        "concrete",
+        "masonry",
+        "mason",
+        "bricklayer"
+      ],
+      "accent": "#cbd5e1",
+      "priority": 100
+    },
+    {
+      "id": "fencing_decks",
+      "name": "Fencing & Decks",
+      "file": "fencing_decks.html",
+      "keywords": [
+        "fence",
+        "fencing",
+        "deck builder",
+        "deck contractor",
+        "deck"
+      ],
+      "accent": "#d9a066",
+      "priority": 100
+    },
+    {
+      "id": "painting",
+      "name": "Painting Contractors",
+      "file": "painting.html",
+      "keywords": [
+        "painter",
+        "painting"
+      ],
+      "accent": "#c084fc",
+      "priority": 100
+    },
+    {
+      "id": "flooring",
+      "name": "Flooring Installation",
+      "file": "flooring.html",
+      "keywords": [
+        "flooring",
+        "floor installer",
+        "carpet installer",
+        "tile contractor"
+      ],
+      "accent": "#eab308",
+      "priority": 100
+    },
+    {
+      "id": "pressure_washing",
+      "name": "Pressure Washing",
+      "file": "pressure_washing.html",
+      "keywords": [
+        "pressure wash",
+        "power wash",
+        "soft wash"
+      ],
+      "accent": "#67e8f9",
+      "priority": 100
+    },
+    {
+      "id": "residential_cleaning",
+      "name": "Residential Cleaning",
+      "file": "residential_cleaning.html",
+      "keywords": [
+        "house cleaning",
+        "residential cleaning",
+        "maid",
+        "cleaning service"
+      ],
+      "accent": "#f9a8d4",
+      "priority": 100
+    },
+    {
+      "id": "junk_removal",
+      "name": "Junk Removal & Cleanouts",
+      "file": "junk_removal.html",
+      "keywords": [
+        "junk removal",
+        "cleanout",
+        "rubbish removal"
+      ],
+      "accent": "#a3e635",
+      "priority": 100
+    },
+    {
+      "id": "pest_control",
+      "name": "Pest Control",
+      "file": "pest_control.html",
+      "keywords": [
+        "pest",
+        "exterminat",
+        "termite"
+      ],
+      "accent": "#bef264",
+      "priority": 100
+    },
+    {
+      "id": "towing",
+      "name": "Towing & Roadside Assistance",
+      "file": "towing.html",
+      "keywords": [
+        "towing",
+        "tow truck",
+        "roadside assistance",
+        "wrecker"
+      ],
+      "accent": "#fbbf24",
+      "priority": 100
+    },
+    {
+      "id": "pet_grooming",
+      "name": "Pet Grooming",
+      "file": "pet_grooming.html",
+      "keywords": [
+        "pet groom",
+        "dog groom",
+        "cat groom"
+      ],
+      "accent": "#f0abfc",
+      "priority": 100
+    },
+    {
+      "id": "farm_equipment_repair",
+      "name": "Farm Equipment Repair",
+      "file": "farm_equipment_repair.html",
+      "keywords": [
+        "farm equipment",
+        "tractor repair",
+        "agricultural service",
+        "agricultural equipment"
+      ],
+      "accent": "#fcd34d",
+      "priority": 100
+    },
+    {
+      "id": "seasonal_snow_removal",
+      "name": "Seasonal — Winter Snow Removal",
+      "file": "seasonal_snow_removal.html",
+      "keywords": [],
+      "accent": "#7dd3fc",
+      "priority": 100
+    },
+    {
+      "id": "seasonal_mowing",
+      "name": "Seasonal — Spring & Summer Mowing",
+      "file": "seasonal_mowing.html",
+      "keywords": [],
+      "accent": "#a3e635",
+      "priority": 100
+    },
+    {
+      "id": "seasonal_leaves_tree_trimming",
+      "name": "Seasonal — Fall Leaves & Tree Trimming",
+      "file": "seasonal_leaves_tree_trimming.html",
+      "keywords": [],
+      "accent": "#fb923c",
+      "priority": 100
+    },
+    {
+      "id": "seasonal_flood_water_mitigation",
+      "name": "Seasonal — Spring Flooding & Water Mitigation",
+      "file": "seasonal_flood_water_mitigation.html",
+      "keywords": [],
+      "accent": "#38bdf8",
+      "priority": 100
+    },
+    {
+      "id": "home_trade_services",
+      "name": "Home & Trade Services",
+      "file": "home_trade_services.html",
+      "keywords": [
+        "contractor",
+        "plumb",
+        "electric",
+        "hvac",
+        "heating",
+        "cooling",
+        "air conditioning",
+        "roofing",
+        "roofer",
+        "landscap",
+        "lawn",
+        "construction",
+        "remodel",
+        "renovation",
+        "handyman",
+        "painter",
+        "painting",
+        "flooring",
+        "carpet",
+        "fence",
+        "concrete",
+        "masonry",
+        "pest",
+        "garage door",
+        "gutter",
+        "septic",
+        "excavat",
+        "drywall",
+        "insulation",
+        "solar",
+        "deck",
+        "siding",
+        "window",
+        "cleaning service",
+        "junk removal",
+        "tree service",
+        "pool service",
+        "welding"
+      ],
+      "accent": "#f59e0b",
+      "priority": 0
+    },
+    {
+      "id": "creative_design",
+      "name": "Creative & Design",
+      "file": "creative_design.html",
+      "keywords": [
+        "graphic design",
+        "design studio",
+        "design agency",
+        "sign",
+        "signage",
+        "photograph",
+        "photo studio",
+        "videograph",
+        "video production",
+        "film",
+        "branding",
+        "brand",
+        "print",
+        "printing",
+        "web design",
+        "web develop",
+        "marketing agency",
+        "advertis",
+        "creative",
+        "media",
+        "screen print",
+        "embroidery",
+        "illustrat",
+        "animation",
+        "photo studio",
+        "recording studio",
+        "art studio"
+      ],
+      "accent": "#8b5cf6",
+      "priority": 0
+    },
+    {
+      "id": "food_beverage",
+      "name": "Food & Beverage",
+      "file": "food_beverage.html",
+      "keywords": [
+        "restaurant",
+        "bar ",
+        "pub",
+        "tavern",
+        "cafe",
+        "coffee",
+        "bakery",
+        "bake",
+        "catering",
+        "caterer",
+        "food truck",
+        "deli",
+        "pizzeria",
+        "pizza",
+        "grill",
+        "diner",
+        "brewery",
+        "brewpub",
+        "winery",
+        "juice",
+        "ice cream",
+        "creamery",
+        "bistro",
+        "eatery",
+        "steakhouse",
+        "sushi",
+        "taco",
+        "bbq",
+        "barbecue",
+        "sandwich",
+        "donut",
+        "smoothie",
+        "food",
+        "kitchen",
+        "dining",
+        "delivery"
+      ],
+      "accent": "#ef4444",
+      "priority": 0
+    },
+    {
+      "id": "health_wellness",
+      "name": "Health & Wellness",
+      "file": "health_wellness.html",
+      "keywords": [
+        "gym",
+        "fitness",
+        "yoga",
+        "pilates",
+        "crossfit",
+        "personal train",
+        "chiropract",
+        "physical therapy",
+        "physiotherapy",
+        "wellness",
+        "nutrition",
+        "dietit",
+        "dental",
+        "dentist",
+        "orthodont",
+        "clinic",
+        "medical",
+        "doctor",
+        "physician",
+        "chiro",
+        "rehab",
+        "acupuncture",
+        "health",
+        "therapy",
+        "counseling",
+        "optometr",
+        "vision"
+      ],
+      "accent": "#10b981",
+      "priority": 0
+    },
+    {
+      "id": "beauty_personal_care",
+      "name": "Beauty & Personal Care",
+      "file": "beauty_personal_care.html",
+      "keywords": [
+        "salon",
+        "barber",
+        "hair",
+        "nail",
+        "spa",
+        "esthetic",
+        "skincare",
+        "skin care",
+        "lash",
+        "brow",
+        "tattoo",
+        "waxing",
+        "beauty",
+        "cosmetolog",
+        "med spa",
+        "makeup",
+        "microblad",
+        "tanning",
+        "massage",
+        "day spa",
+        "grooming"
+      ],
+      "accent": "#ec4899",
+      "priority": 0
+    },
+    {
+      "id": "automotive",
+      "name": "Automotive",
+      "file": "automotive.html",
+      "keywords": [
+        "auto",
+        "automotive",
+        "mechanic",
+        "car repair",
+        "tire",
+        "detailing",
+        "body shop",
+        "collision",
+        "oil change",
+        "transmission",
+        "dealership",
+        "car dealer",
+        "motorcycle",
+        "towing",
+        "tow ",
+        "car wash",
+        "muffler",
+        "brake",
+        "windshield",
+        "vehicle",
+        "garage",
+        "smog",
+        "lube"
+      ],
+      "accent": "#3b82f6",
+      "priority": 0
+    },
+    {
+      "id": "professional_services",
+      "name": "Professional Services",
+      "file": "professional_services.html",
+      "keywords": [
+        "law",
+        "lawyer",
+        "attorney",
+        "legal",
+        "account",
+        "cpa",
+        "bookkeep",
+        "tax",
+        "insurance",
+        "consult",
+        "financial",
+        "finance",
+        "notary",
+        "advisor",
+        "staffing",
+        "recruit",
+        "payroll",
+        "audit",
+        "wealth",
+        "investment",
+        "title company",
+        "escrow",
+        "engineer",
+        "architect",
+        "surveyor",
+        "translation"
+      ],
+      "accent": "#6366f1",
+      "priority": 0
+    },
+    {
+      "id": "real_estate_property",
+      "name": "Real Estate & Property",
+      "file": "real_estate_property.html",
+      "keywords": [
+        "real estate",
+        "realtor",
+        "realty",
+        "broker",
+        "property management",
+        "property manage",
+        "mortgage",
+        "apartment",
+        "leasing",
+        "home builder",
+        "homes",
+        "land",
+        "commercial real estate",
+        "rental",
+        "housing",
+        "condo",
+        "relocation"
+      ],
+      "accent": "#14b8a6",
+      "priority": 0
+    },
+    {
+      "id": "retail_boutique",
+      "name": "Retail & Boutique",
+      "file": "retail_boutique.html",
+      "keywords": [
+        "boutique",
+        "shop",
+        "store",
+        "florist",
+        "flower",
+        "gift",
+        "jewelry",
+        "jeweler",
+        "apparel",
+        "clothing",
+        "fashion",
+        "furniture",
+        "thrift",
+        "consignment",
+        "retail",
+        "market",
+        "grocery",
+        "hardware",
+        "bookstore",
+        "candle",
+        "antique",
+        "toy",
+        "pet store",
+        "supply"
+      ],
+      "accent": "#a855f7",
+      "priority": 0
+    },
+    {
+      "id": "events_hospitality",
+      "name": "Events & Hospitality",
+      "file": "events_hospitality.html",
+      "keywords": [
+        "event",
+        "venue",
+        "wedding",
+        "hotel",
+        "motel",
+        "inn",
+        "resort",
+        "dj",
+        "entertainment",
+        "rental",
+        "party",
+        "banquet",
+        "hospitality",
+        "tour",
+        "travel",
+        "planner",
+        "florist event",
+        "photo booth",
+        "limousine",
+        "limo",
+        "catering hall",
+        "conference"
+      ],
+      "accent": "#f43f5e",
+      "priority": 0
+    },
+    {
+      "id": "general",
+      "name": "General (default)",
+      "file": "general.html",
+      "keywords": [],
+      "accent": "#6366f1",
+      "priority": 0
+    },
+    {
+      "id": "automotive__showcase",
+      "name": "Automotive — Hero showcase",
+      "file": "automotive__showcase.html",
+      "keywords": [],
+      "priority": 100
+    },
+    {
+      "id": "beauty_personal_care__showcase",
+      "name": "Beauty & Personal Care — Hero showcase",
+      "file": "beauty_personal_care__showcase.html",
+      "keywords": [],
+      "priority": 100
+    },
+    {
+      "id": "creative_design__showcase",
+      "name": "Creative & Design — Hero showcase",
+      "file": "creative_design__showcase.html",
+      "keywords": [],
+      "priority": 100
+    },
+    {
+      "id": "events_hospitality__showcase",
+      "name": "Events & Hospitality — Hero showcase",
+      "file": "events_hospitality__showcase.html",
+      "keywords": [],
+      "priority": 100
+    },
+    {
+      "id": "food_beverage__showcase",
+      "name": "Food & Beverage — Hero showcase",
+      "file": "food_beverage__showcase.html",
+      "keywords": [],
+      "priority": 100
+    },
+    {
+      "id": "general__showcase",
+      "name": "General (default) — Hero showcase",
+      "file": "general__showcase.html",
+      "keywords": [],
+      "priority": 100
+    },
+    {
+      "id": "health_wellness__showcase",
+      "name": "Health & Wellness — Hero showcase",
+      "file": "health_wellness__showcase.html",
+      "keywords": [],
+      "priority": 100
+    },
+    {
+      "id": "home_trade_services__showcase",
+      "name": "Home & Trade Services — Hero showcase",
+      "file": "home_trade_services__showcase.html",
+      "keywords": [],
+      "priority": 100
+    },
+    {
+      "id": "professional_services__showcase",
+      "name": "Professional Services — Hero showcase",
+      "file": "professional_services__showcase.html",
+      "keywords": [],
+      "priority": 100
+    },
+    {
+      "id": "real_estate_property__showcase",
+      "name": "Real Estate & Property — Hero showcase",
+      "file": "real_estate_property__showcase.html",
+      "keywords": [],
+      "priority": 100
+    },
+    {
+      "id": "retail_boutique__showcase",
+      "name": "Retail & Boutique — Hero showcase",
+      "file": "retail_boutique__showcase.html",
+      "keywords": [],
+      "priority": 100
+    },
+    {
+      "id": "roofing__homepage",
+      "name": "Roofing Contractors — Homepage mockup: bold dark",
+      "file": "roofing__homepage.html",
+      "keywords": [],
+      "priority": 100
+    },
+    {
+      "id": "roofing__homepage_heritage",
+      "name": "Roofing Contractors — Homepage mockup: heritage green",
+      "file": "roofing__homepage_heritage.html",
+      "keywords": [],
+      "priority": 100
+    },
+    {
+      "id": "roofing__homepage_modern",
+      "name": "Roofing Contractors — Homepage mockup: modern light",
+      "file": "roofing__homepage_modern.html",
+      "keywords": [],
+      "priority": 100
+    },
+    {
+      "id": "roofing__note",
+      "name": "Roofing Contractors — Short personal note",
+      "file": "roofing__note.html",
+      "keywords": [],
+      "priority": 100
+    },
+    {
+      "id": "roofing__reviews",
+      "name": "Roofing Contractors — Reviews spotlight",
+      "file": "roofing__reviews.html",
+      "keywords": [],
+      "priority": 100
+    },
+    {
+      "id": "roofing__storm",
+      "name": "Roofing Contractors — Storm season",
+      "file": "roofing__storm.html",
+      "keywords": [],
+      "priority": 100
+    }
+  ]
+}

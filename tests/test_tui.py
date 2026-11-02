@@ -583,9 +583,9 @@ def test_customize_screen_preselects_industry_and_applies_price_override():
             await pilot.pause()
             assert isinstance(app.screen, CustomizeScreen)
 
-            # The demo businesses are electricians -> trades template preselected.
+            # The demo businesses are electricians -> electrical template preselected.
             sel = app.screen.query_one("#industry", Select)
-            assert sel.value == "home_trade_services"
+            assert sel.value == "electrical"
 
             # Override this business's Launchpad email price, then advance.
             app.screen.query_one("#price-launchpad_sale").value = "$275"
@@ -593,7 +593,7 @@ def test_customize_screen_preselects_industry_and_applies_price_override():
             await pilot.pause()
             assert isinstance(app.screen, ComposeScreen)
             assert "$275" in app.messages[0].html
-            assert "home-service pros" in app.messages[0].html
+            assert "electrical contractors" in app.messages[0].html
 
     asyncio.run(scenario())
 

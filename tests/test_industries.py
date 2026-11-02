@@ -5,8 +5,8 @@ import industries
 
 def test_classify_maps_common_categories():
     cases = {
-        "Electrician": "home_trade_services",
-        "Plumbing service": "home_trade_services",
+        "Electrician": "electrical",
+        "Plumbing service": "plumbing",
         "Graphic designer": "creative_design",
         "Sign shop": "creative_design",
         "Mexican restaurant": "food_beverage",
@@ -51,3 +51,48 @@ def test_default_pricing_has_all_fields():
         assert set(row) >= {
             "launchpad", "launchpad_sale", "attribution", "professional", "enterprise"
         }
+
+
+def test_specific_local_services_take_precedence_over_broad_groups():
+    cases = {
+        "Lawn care service": "lawncare", "Tree service": "tree_removal",
+        "Roofing contractor": "roofing", "Gutter cleaning service": "gutters",
+        "Air conditioning contractor": "hvac", "Drain cleaning service": "plumbing",
+        "Electrical installation service": "electrical", "Excavating contractor": "excavation",
+        "Septic system service": "septic", "Concrete contractor": "concrete_masonry",
+        "Fence contractor": "fencing_decks", "Painting contractor": "painting",
+        "Flooring store": "flooring", "Pressure washing service": "pressure_washing",
+        "House cleaning service": "residential_cleaning", "Junk removal service": "junk_removal",
+        "Pest control service": "pest_control", "Towing service": "towing",
+        "Pet grooming salon": "pet_grooming", "Farm equipment repair shop": "farm_equipment_repair",
+    }
+    for category, key in cases.items():
+        assert industries.classify(category) == key, category
+
+
+def test_category_takes_priority_over_unrelated_business_name():
+    assert industries.classify("Restaurant", "Electric Diner") == "food_beverage"
+    assert industries.classify("Law firm", "Mason Legal") == "professional_services"
+    assert industries.classify("", "Muskingum Tree Removal") == "tree_removal"
+
+
+def test_insurance_specialties_match_without_swallowing_other_industries():
+    cases = {
+        "Home insurance agency": "insurance_home",
+        "Homeowners insurance": "insurance_home",
+        "Auto insurance agency": "insurance_auto",
+        "Car insurance provider": "insurance_auto",
+        "Renter's insurance agency": "insurance_renters",
+        "Renters insurance": "insurance_renters",
+        "Rental property insurance": "insurance_renters",
+        "Boat insurance agency": "insurance_boat",
+        "Marine insurance": "insurance_boat",
+        "Health insurance agency": "insurance_health",
+        "Healthcare insurance provider": "insurance_health",
+        "Insurance agency": "professional_services",
+        "Auto repair shop": "automotive",
+        "Medical clinic": "health_wellness",
+        "Boat rental": "real_estate_property",
+    }
+    for category, expected in cases.items():
+        assert industries.classify(category) == expected, category

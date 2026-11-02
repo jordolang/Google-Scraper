@@ -170,6 +170,23 @@ def build_prompt(business, industry_key: str = "") -> str:
     key = industry_key or industry_key_for(business)
     category = _clean(business.category, 60).lower() or "local business"
     category = ("an " if category[0] in "aeiou" else "a ") + category
+    # Specialized outreach categories reuse the established visual direction.
+    home_services = {
+        "lawncare", "tree_removal", "gutters", "hvac", "plumbing", "electrical",
+        "excavation", "septic", "concrete_masonry", "fencing_decks", "painting",
+        "flooring", "pressure_washing", "residential_cleaning", "junk_removal",
+        "pest_control", "farm_equipment_repair", "seasonal_snow_removal",
+        "seasonal_mowing", "seasonal_leaves_tree_trimming",
+        "seasonal_flood_water_mitigation",
+    }
+    if key in home_services:
+        key = "home_trade_services"
+    elif key.startswith("insurance_"):
+        key = "professional_services"
+    elif key == "towing":
+        key = "automotive"
+    elif key == "pet_grooming":
+        key = "beauty_personal_care"
     photo, palette = SCENES.get(key, SCENES["general"])
     return PROMPT.format(
         name=_clean(business.name) or "Your Business",

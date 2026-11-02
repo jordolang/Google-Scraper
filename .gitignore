@@ -58,6 +58,7 @@ chromedriver.exe
 # Industry email templates are source, not output — keep them tracked.
 !email_templates/
 !email_templates/*.html
+!email_templates/templates.json
 
 # Generated Emails (optional - uncomment to track)
 # generated_emails/*.html
