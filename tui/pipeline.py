@@ -50,6 +50,40 @@ def _noop_business(_business: "Business") -> None:  # pragma: no cover - trivial
     pass
 
 
+
+def _new_send_stats(messages, dry_run: bool) -> dict:
+    """The result dict every send() returns."""
+    return {"sent": 0, "failed": 0, "skipped": 0, "composed": 0,
+            "total": len(messages), "dry_run": bool(dry_run), "failures": []}
+
+
+def _email_emitter(on_event, total: int):
+    """A callback that reports one recipient's status as a plain dict.
+
+    ``index`` is None for run-level events (connecting, an auth error).
+    """
+    def emit(index, status: str, detail: str = "", msg=None) -> None:
+        if on_event is None:
+            return
+        on_event({
+            "kind": "email", "index": index, "total": total, "status": status,
+            "detail": detail,
+            "business": msg.business.name if msg is not None else "",
+            "to": msg.to_email if msg is not None else "",
+        })
+    return emit
+
+
+def _last_failure(sender) -> str:
+    """Why the sender's most recent message was refused, if it said."""
+    failed = getattr(sender, "failed_emails", None)
+    if isinstance(failed, list) and failed:
+        last = failed[-1]
+        if isinstance(last, (list, tuple)) and len(last) >= 3 and last[2]:
+            return str(last[2])
+    return "the server did not accept the message"
+
+
 class Pipeline:
     """Common interface shared by the live and demo pipelines."""
 
@@ -497,6 +531,7 @@ class Pipeline:
         delay: float = 2.0,
         dry_run: bool = False,
         progress: ProgressFn = _noop,
+        on_event: Callable[[dict], None] = None,
     ) -> dict:
         raise NotImplementedError
 
@@ -835,41 +870,53 @@ class LivePipeline(Pipeline):
         delay: float = 2.0,
         dry_run: bool = False,
         progress: ProgressFn = _noop,
+        on_event: Callable[[dict], None] = None,
     ) -> dict:
         sender = self._sender()
-        stats = {"sent": 0, "failed": 0, "skipped": 0, "total": len(messages)}
+        stats = _new_send_stats(messages, dry_run)
         delivered: List[EmailMessage] = []
+        emit = _email_emitter(on_event, len(messages))
 
         # Never email anyone who has unsubscribed. If the list can't be read,
         # stop rather than risk it.
         unsubscribed = self._unsubscribed([m.to_email for m in messages], progress)
         if unsubscribed is None:
             stats["error"] = "could not check the unsubscribe list"
+            emit(None, "error", stats["error"])
             return stats
 
         if not dry_run:
             progress(f"Connecting to {sender.smtp_server}:{sender.smtp_port}…")
+            emit(None, "connecting", f"{sender.smtp_server}:{sender.smtp_port}")
             if not sender.connect(password):
                 progress("❌ Resend API key rejected." if self.send_via == "resend"
                          else "❌ SMTP connection/authentication failed.")
                 stats["error"] = "authentication failed"
+                emit(None, "error", "Resend API key rejected" if self.send_via == "resend"
+                     else "SMTP connection/authentication failed")
                 return stats
             progress("✓ Connected.")
+            emit(None, "connected", f"{sender.smtp_server}:{sender.smtp_port}")
 
         try:
             for idx, msg in enumerate(messages, 1):
                 if not msg.to_email or "@" not in msg.to_email:
                     progress(f"[{idx}/{len(messages)}] {msg.business.name}: no valid address, skipping")
                     stats["skipped"] += 1
+                    emit(idx, "skipped", "no valid address", msg)
                     continue
                 if msg.to_email.strip().lower() in unsubscribed:
                     progress(f"[{idx}/{len(messages)}] {msg.business.name}: unsubscribed, skipping")
                     stats["skipped"] += 1
+                    emit(idx, "skipped", "unsubscribed", msg)
                     continue
                 if dry_run:
                     progress(f"[{idx}/{len(messages)}] DRY RUN → {msg.to_email}  ({msg.subject})")
+                    stats["composed"] += 1
+                    emit(idx, "dry_run", "composed only — not sent", msg)
                     continue
                 progress(f"[{idx}/{len(messages)}] sending → {msg.to_email}…")
+                emit(idx, "sending", msg.subject, msg)
                 ok = sender.send_email(
                     msg.to_email, msg.subject, msg.html, msg.business.name,
                     unsubscribe_url=msg.unsubscribe_url or None,
@@ -877,6 +924,14 @@ class LivePipeline(Pipeline):
                 stats["sent" if ok else "failed"] += 1
                 if ok:
                     delivered.append(msg)
+                    emit(idx, "sent", msg.subject, msg)
+                else:
+                    reason = _last_failure(sender)
+                    stats["failures"].append(
+                        {"business": msg.business.name, "to": msg.to_email,
+                         "reason": reason})
+                    progress(f"    ❌ {reason}")
+                    emit(idx, "failed", reason, msg)
                 if idx < len(messages):
                     # A little randomness: a perfectly regular cadence is one
                     # of the patterns providers use to spot bulk senders.
@@ -923,6 +978,8 @@ class LivePipeline(Pipeline):
         finally:
             sender.disconnect()
         stats["sent" if ok else "failed"] += 1
+        if not ok:
+            stats["error"] = _last_failure(sender)
         progress("✓ Test email sent — check your inbox." if ok
                  else "❌ The test email was not accepted.")
         return stats
@@ -1244,9 +1301,11 @@ class DemoPipeline(Pipeline):
         delay: float = 2.0,
         dry_run: bool = False,
         progress: ProgressFn = _noop,
+        on_event: Callable[[dict], None] = None,
     ) -> dict:
-        stats = {"sent": 0, "failed": 0, "skipped": 0, "total": len(messages)}
+        stats = _new_send_stats(messages, dry_run)
         delivered: List[EmailMessage] = []
+        emit = _email_emitter(on_event, len(messages))
         mode = "DRY RUN" if dry_run else "demo send"
         progress(f"[demo] {mode} of {len(messages)} email(s)…")
         for idx, msg in enumerate(messages, 1):
@@ -1254,11 +1313,16 @@ class DemoPipeline(Pipeline):
             if not msg.to_email or "@" not in msg.to_email:
                 progress(f"[{idx}/{len(messages)}] {msg.business.name}: no address, skipped")
                 stats["skipped"] += 1
+                emit(idx, "skipped", "no valid address", msg)
                 continue
             progress(f"[{idx}/{len(messages)}] {'would send' if dry_run else 'sent'} → {msg.to_email}")
-            if not dry_run:
+            if dry_run:
+                stats["composed"] += 1
+                emit(idx, "dry_run", "composed only — not sent", msg)
+            else:
                 stats["sent"] += 1
                 delivered.append(msg)
+                emit(idx, "sent", msg.subject, msg)
         self.record_outreach(delivered, progress=progress)
         progress(
             f"[demo] done. sent={stats['sent']} failed={stats['failed']} skipped={stats['skipped']}"

@@ -141,6 +141,7 @@ def build_app(argv=None) -> tuple[QApplication, MainWindow]:
     app.setApplicationName(APP_TITLE)
     app.setOrganizationName("Jlang.dev")
     app.setStyle("Fusion")
+    app.setPalette(theme.light_palette())
     app.setStyleSheet(theme.stylesheet())
 
     state = AppState()
