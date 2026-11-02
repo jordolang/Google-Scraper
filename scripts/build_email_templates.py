@@ -621,6 +621,11 @@ def variant_copy(variant: dict, content: dict) -> dict:
 
 def render_all() -> dict:
     """{file stem: html} for every template the app ships."""
+    if (OUT_DIR / "templates.json").exists():
+        # In catalog mode HTML is source, including user-authored templates.
+        return {Path(i.template_filename).stem:
+                (OUT_DIR / i.template_filename).read_text(encoding="utf-8")
+                for i in industries.all_industries(OUT_DIR)}
     content = json.loads(CONTENT.read_text(encoding="utf-8"))
     variants = json.loads(VARIANTS.read_text(encoding="utf-8"))
     out = {key: render(key, copy) for key, copy in content.items()}
@@ -631,6 +636,10 @@ def render_all() -> dict:
 
 
 def main() -> int:
+    if (OUT_DIR / "templates.json").exists():
+        render_all()  # Validate the external catalog without replacing user HTML.
+        print("Templates use templates.json; edit the HTML files directly. No rebuild needed.")
+        return 0
     content = json.loads(CONTENT.read_text(encoding="utf-8"))
     known = {industry.key for industry in industries.all_industries()}
     missing = known - set(content)

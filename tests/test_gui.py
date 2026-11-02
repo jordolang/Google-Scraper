@@ -980,6 +980,40 @@ def test_icon_is_a_multi_size_ico():
     assert count >= 4  # 16px through 256px, so Windows never has to guess
 
 
+def test_template_reload_preserves_selection_and_edits_custom_filename(qapp, tmp_path, monkeypatch):
+    import json
+    from gui.pages.outreach import EmailCampaigns
+
+    directory = tmp_path / "templates"
+    directory.mkdir()
+    (directory / "offer.html").write_text("Hello {{BUSINESS_NAME}}")
+    (directory / "general.html").write_text("General")
+    catalog = directory / "templates.json"
+    entry = {"id": "my_template", "name": "My Template", "file": "offer.html"}
+    catalog.write_text(json.dumps({"templates": [entry]}))
+    monkeypatch.setattr(services.runtime, "user_asset", lambda name: directory)
+    widget = EmailCampaigns(AppState())
+    widget.template.setCurrentIndex(widget.template.findData("my_template"))
+    entry["name"] = "Renamed"
+    catalog.write_text(json.dumps({"templates": [entry]}))
+    widget.reload_templates_button.click()
+    assert widget.template.currentData() == "my_template"
+    assert widget.template.currentText() == "Renamed"
+    opened = []
+    from PySide6.QtGui import QDesktopServices
+    monkeypatch.setattr(QDesktopServices, "openUrl", lambda url: opened.append(url.toLocalFile()))
+    widget.edit_template_button.click()
+    assert Path(opened[-1]) == directory / "offer.html"
+    catalog.write_text("{invalid")
+    warnings = []
+    from PySide6.QtWidgets import QMessageBox
+    monkeypatch.setattr(QMessageBox, "warning", lambda *args: warnings.append(args[-1]))
+    widget.reload_templates_button.click()
+    assert warnings and "templates.json" in warnings[-1]
+    assert widget.template.currentData() == "my_template"
+    widget.close()
+
+
 def test_api_keys_go_to_the_app_env_not_settings(tmp_path, monkeypatch):
     from gui import runtime
 

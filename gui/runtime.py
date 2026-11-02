@@ -103,6 +103,14 @@ def user_asset(name: str) -> Path:
     if not frozen():
         return source
     target = app_data_dir() / name
+    if source.is_dir() and target.is_dir():
+        # Upgrades add campaigns; edited copies always remain authoritative.
+        for bundled in (*source.glob("*.html"), source / "templates.json"):
+            if not bundled.is_file():
+                continue
+            destination = target / bundled.name
+            if not destination.exists():
+                shutil.copy2(bundled, destination)
     if not target.exists() and source.exists():
         target.parent.mkdir(parents=True, exist_ok=True)
         if source.is_dir():
@@ -557,6 +565,10 @@ def refresh_templates() -> Optional[Path]:
     source = bundle_dir() / "email_templates"
     target = app_data_dir() / "email_templates"
     if not source.is_dir() or not target.is_dir():
+        return None
+    # Catalog-managed HTML belongs to the user; never archive it based on a
+    # generator's version marker (custom templates need no such marker).
+    if (target / "templates.json").is_file():
         return None
     # Templates added since this install (new industries, new variants).
     for fresh in source.glob("*.html"):

@@ -123,10 +123,11 @@ def available_templates(templates_dir: Optional[str] = None) -> List[Tuple[str, 
 
     found: List[Tuple[str, str]] = []
     directory = Path(templates_dir) if templates_dir else runtime.user_asset("email_templates")
-    for industry in industries.all_industries():
-        default = directory / f"{industry.key}.html"
-        if default.exists():
+    for industry in industries.all_industries(directory):
+        if (directory / industry.template_filename).exists():
             found.append((industry.label, industry.key))
+        if (directory / "templates.json").exists():
+            continue
         for path in sorted(directory.glob(f"{industry.key}{VARIANT_SEP}*.html")):
             try:
                 name = template_meta(path.read_text(encoding="utf-8")).get("name", "")

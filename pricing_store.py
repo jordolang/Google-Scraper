@@ -60,18 +60,18 @@ SCHEMA_VERSION = 1
 HERO_FIELD = "hero"
 
 
-def default_pricing() -> Dict[str, Dict[str, str]]:
+def default_pricing(templates_dir=None) -> Dict[str, Dict[str, str]]:
     """The full seed table from :mod:`industries` (a fresh copy)."""
-    return industries.default_pricing()
+    return {i.key: dict(i.default_pricing) for i in industries.all_industries(templates_dir)}
 
 
-def _merge_defaults(stored: Dict) -> Dict[str, Dict[str, str]]:
+def _merge_defaults(stored: Dict, templates_dir=None) -> Dict[str, Dict[str, str]]:
     """Overlay ``stored`` onto the defaults, backfilling any missing keys.
 
     Guarantees every registered industry and every package field is present, so
     callers never hit a KeyError even after new industries/fields are added.
     """
-    table = default_pricing()
+    table = default_pricing(templates_dir)
     industries_block = (stored or {}).get("industries", {}) if isinstance(stored, dict) else {}
     for key, defaults in table.items():
         overrides = industries_block.get(key, {}) if isinstance(industries_block, dict) else {}
@@ -83,19 +83,19 @@ def _merge_defaults(stored: Dict) -> Dict[str, Dict[str, str]]:
     return table
 
 
-def load_pricing(path: Path = PRICING_PATH) -> Dict[str, Dict[str, str]]:
+def load_pricing(path: Path = PRICING_PATH, *, templates_dir=None) -> Dict[str, Dict[str, str]]:
     """Return ``{industry_key: {field: price}}``, defaults backfilled.
 
     A missing or malformed file yields the pure defaults — pricing is never a
     hard dependency on a file existing or being valid.
     """
     if not Path(path).exists():
-        return default_pricing()
+        return default_pricing(templates_dir)
     try:
         raw = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return default_pricing()
-    return _merge_defaults(raw)
+        return default_pricing(templates_dir)
+    return _merge_defaults(raw, templates_dir)
 
 
 def save_pricing(
@@ -142,15 +142,16 @@ def hero_for(industry_key: str, heroes: Optional[Dict[str, str]] = None) -> str:
 def prices_for(
     industry_key: str,
     store: Optional[Dict[str, Dict[str, str]]] = None,
+    *, templates_dir=None,
 ) -> Dict[str, str]:
     """The merged price row for one industry (loads pricing.json if needed)."""
-    table = store if store is not None else load_pricing()
+    table = store if store is not None else load_pricing(templates_dir=templates_dir)
     if industry_key in table:
         row = dict(table[industry_key])
     else:
-        row = dict(industries.get(industry_key).default_pricing)
+        row = dict(industries.get(industry_key, templates_dir).default_pricing)
     # Backfill any field the row is missing so downstream tokens never blank out.
-    seed = industries.get(industry_key).default_pricing
+    seed = industries.get(industry_key, templates_dir).default_pricing
     for field in PACKAGE_FIELDS:
         row.setdefault(field, seed.get(field, ""))
     return row

@@ -139,6 +139,7 @@ from), shown in the TUI, and picked up by the call script.
 ### 💌 Email Generator
 - Generate personalized HTML emails from scraped data
 - Beautiful, responsive email templates with gradient designs
+- Editable HTML templates and an external `email_templates/templates.json` catalog: add industries, insurance specialties, or seasonal campaigns without rebuilding ([instructions](email_templates/README.md)).
 - Three-tier pricing packages (Launchpad, Professional, Enterprise)
 - Automated email personalization using business names
 - Batch email generation with summary reports
